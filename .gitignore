@@ -1,0 +1,11 @@
+*.o
+*.bc
+*.ll
+
+lex.c
+parse.c
+parse.h
+
+basic
+
+*.sw*
