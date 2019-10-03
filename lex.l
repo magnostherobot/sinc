@@ -12,19 +12,33 @@
 
 void yyerror(const char *s, ...);
 
+char *str_value(char *s) {
+    s++;
+    /* TODO: strdup allocates memory! */
+    char *ret = strdup(s);
+    ret[strlen(s) - 2] = 0;
+
+    return ret;
+}
+
 %}
 
-ID    [-A-Za-z_+*!/][-A-Za-z0-9_+*!]*
-FLOAT [+-]?([0-9]+[.][0-9]*([Ee][+-]?[0-9]+)?|[.][0-9]+([Ee][+-]?[0-9]+)?)
-INT   [+-]?[0-9]+
+ID     [-A-Za-z_+*!/][-A-Za-z0-9_+*!]*
+STRING ["][^"]*["]
+FLOAT  [+-]?([0-9]+[.][0-9]*([Ee][+-]?[0-9]+)?|[.][0-9]+([Ee][+-]?[0-9]+)?)
+INT    [+-]?[0-9]+
 
 %%
 
 "(" |
 ")" |
+"[" |
+"]" |
 ";" { return yytext[0]; }
 
 "()" { return NIL; }
+
+{STRING} { yylval.s = str_value(yytext); return STRING; }
 
 {ID} { /* TODO: strdup allocates memory! */
        yylval.s = strdup(yytext); return ID; }

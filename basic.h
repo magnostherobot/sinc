@@ -21,6 +21,7 @@ sexpr *new_int(int num);
 sexpr *new_float(float num);
 sexpr *new_id(char *id);
 sexpr *new_node(sexpr *l, sexpr *r);
+sexpr *new_str(char *str);
 
 void print_sexpr(sexpr *contents);
 void codegen(sexpr *sexpr);

@@ -23,21 +23,29 @@ void yyerror(char *s, ...);
 %token <f> FLOAT
 %token <i> INT
 %token <s> ID
+%token <s> STRING
 %token     BRANCH
 
 %type  <u> sexpr
+%type  <u> lexpr
 
 %%
 
 cmds:
-    | cmds sexpr { print_sexpr($2); }
+    | cmds sexpr { codegen($2); }
 
 sexpr: '(' sexpr ';' sexpr ')' { $$ = new_node($2, $4); }
      | '(' sexpr     sexpr ')' { $$ = new_node($2, $3); }
-     | INT   { $$ = new_int($1); }
-     | FLOAT { $$ = new_float($1); }
-     | ID    { $$ = new_id($1); }
-     | NIL   { $$ = 0; }
+     | '[' lexpr { $$ = $2; }
+     | INT    { $$ = new_int($1); }
+     | FLOAT  { $$ = new_float($1); }
+     | ID     { $$ = new_id($1); }
+     | NIL    { $$ = 0; }
+     | STRING { $$ = new_str($1); }
+
+lexpr: ']' { $$ = 0; }
+     | sexpr ';' lexpr { $$ = new_node($1, $3); }
+     | sexpr     lexpr { $$ = new_node($1, $2); }
 
 %%
 
