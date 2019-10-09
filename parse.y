@@ -32,7 +32,7 @@ void yyerror(char *s, ...);
 %%
 
 cmds:
-    | cmds sexpr { codegen($2); }
+    | cmds sexpr { fprint_sexpr(stderr, $2); codegen($2); }
 
 sexpr: '(' sexpr ';' sexpr ')' { $$ = new_node($2, $4); }
      | '(' sexpr     sexpr ')' { $$ = new_node($2, $3); }

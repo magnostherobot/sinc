@@ -14,7 +14,7 @@ void yyerror(const char *s, ...);
 
 char *str_value(char *s) {
     s++;
-    /* TODO: strdup allocates memory! */
+    /* FIXME: strdup allocates memory! */
     char *ret = strdup(s);
     ret[strlen(s) - 2] = 0;
 
@@ -40,7 +40,7 @@ INT    [+-]?[0-9]+
 
 {STRING} { yylval.s = str_value(yytext); return STRING; }
 
-{ID} { /* TODO: strdup allocates memory! */
+{ID} { /* FIXME: strdup allocates memory! */
        yylval.s = strdup(yytext); return ID; }
 
 {INT} { yylval.i = atoi(yytext); return INT; }

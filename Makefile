@@ -9,17 +9,21 @@ LDLIBS   += $(shell llvm-config --libs core analysis --system-libs)
 default: all
 all: basic
 
-basic: basic.o parse.o lex.o
-	$(LINK.cc) $(OUTPUT_OPTION) $^ $(LDLIBS)
-
-basic.o lex.o: parse.h basic.h
+basic.o: basic.h parse.h debug.h error.h scope.h
 parse.o: basic.h
+lex.o:   basic.h parse.h
+scope.o: scope.h error.h
+
+basic: basic.o parse.o lex.o scope.o
+	$(LINK.cc) $(OUTPUT_OPTION) $^ $(LDLIBS)
 
 parse.h: parse.y
 	$(YACC) -d -o /dev/null $<
 	mv -f y.tab.h $@
 
 # test stuff (warning: influenced by compiler flags declared above!)
+# TODO should probably rearrange the system so tests don't use the same build
+# configs as the compiler
 
 simple: simple.o common.o
 
@@ -33,7 +37,7 @@ simple: simple.o common.o
 	< $< ./basic > $@
 
 %.ll: %.c
-	$(COMPILE.c) -S -emit-llvm $(OUTPUT_OPTION) $<
+	clang -S -emit-llvm $(OUTPUT_OPTION) $<
 
 clean:
 	$(RM) basic simple y.tab.* *.ll *.o lex.c parse.c parse.h

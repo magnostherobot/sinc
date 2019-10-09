@@ -6,11 +6,16 @@
 
 enum errcode {
     OK = 0,
-    UNKNOWN_ID
+    GENERAL_ERROR = 1,
+    COMMAND_NOT_FOUND = 2,
+    UNKNOWN_ID,
+    SYNTAX_ERROR
 };
 
+/* FIXME: double fprintf is ugly */
 #define error(v, ...) do { \
     fprintf(stderr, __VA_ARGS__); \
+    fprintf(stderr, "\n"); \
     exit(v); \
 } while (0)
 
