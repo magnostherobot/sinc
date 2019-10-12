@@ -95,6 +95,7 @@ void print_sexpr(sexpr *se) {
 }
 
 LLVMModuleRef module;
+LLVMValueRef function;
 LLVMBuilderRef builder;
 
 LLVMTypeRef print_int_t;
@@ -216,6 +217,8 @@ LLVMValueRef codegen_definition(sexpr *se) {
     LLVMBasicBlockRef func_b = LLVMAppendBasicBlock(func_p, "entry");
     LLVMPositionBuilderAtEnd(builder, func_b);
 
+    function = func_p;
+
     scope_add_entry(sc, func_id, func_p, func_t);
 
     scope_push_layer(&sc);
@@ -305,6 +308,56 @@ LLVMValueRef codegen_invocation(sexpr *se) {
     return res;
 }
 
+LLVMValueRef codegen_conditional(sexpr *se) {
+    assert(se);
+    assert(se->type == BRANCH);
+
+    sexpr *cond_ast = se->contents.n.l;
+    assert(cond_ast);
+
+    se = se->contents.n.r;
+    assert(se);
+    assert(se->type == BRANCH);
+
+    sexpr *then_ast = se->contents.n.l;
+    assert(then_ast);
+
+    se = se->contents.n.r;
+    assert(se);
+    assert(se->type == BRANCH);
+
+    sexpr *else_ast = se->contents.n.l;
+    assert(else_ast);
+
+    assert(!se->contents.n.r);
+
+    LLVMBasicBlockRef then_b = LLVMAppendBasicBlock(function, "then");
+    LLVMBasicBlockRef else_b = LLVMAppendBasicBlock(function, "else");
+    LLVMBasicBlockRef done_b = LLVMAppendBasicBlock(function, "done");
+
+    LLVMValueRef llvm_zero_v = LLVMConstInt(llvm_int_t, 0, 0);
+    LLVMValueRef cond_res = _codegen(cond_ast);
+    LLVMValueRef cond_v =
+        LLVMBuildICmp(builder, LLVMIntNE, cond_res, llvm_zero_v, "neq_0");
+    LLVMBuildCondBr(builder, cond_v, then_b, else_b);
+
+    LLVMPositionBuilderAtEnd(builder, then_b);
+    LLVMValueRef then_v = _codegen(then_ast);
+    LLVMBuildBr(builder, done_b);
+
+    LLVMPositionBuilderAtEnd(builder, else_b);
+    LLVMValueRef else_v = _codegen(else_ast);
+    LLVMBuildBr(builder, done_b);
+
+    LLVMPositionBuilderAtEnd(builder, done_b);
+    LLVMValueRef phi_p = LLVMBuildPhi(builder, llvm_int_t, "if_res");
+    LLVMBasicBlockRef phi_bs[] = { then_b, else_b };
+    LLVMValueRef phi_vs[] = { then_v, else_v };
+    LLVMAddIncoming(phi_p, phi_vs, phi_bs, 2);
+
+    return phi_p;
+}
+
 LLVMValueRef codegen_branch(sexpr *se) {
     debug("codegenning branch @%p\n", (void *) se);
 
@@ -318,6 +371,8 @@ LLVMValueRef codegen_branch(sexpr *se) {
     if (l->type == ID) {
         if (!strcmp(l->contents.s, "def")) {
             res = codegen_definition(r);
+        } else if (!strcmp(l->contents.s, "if")) {
+            res = codegen_conditional(r);
         } else {
             res = codegen_invocation(se);
         }
@@ -371,12 +426,6 @@ void prologue() {
     print_str_t = LLVMFunctionType(LLVMInt32Type(), print_str_params, 1, 0);
     print_str_p = LLVMAddFunction(module, "debug_str", print_str_t);
     scope_add_entry(sc, "debug_str", print_str_p, print_str_t);
-
-    /* add int_if */
-    LLVMTypeRef int_if_params[] = { llvm_int_t, llvm_int_t, llvm_int_t };
-    LLVMTypeRef int_if_t = LLVMFunctionType(llvm_int_t, int_if_params, 3, 0);
-    LLVMValueRef int_if_p = LLVMAddFunction(module, "int_if", int_if_t);
-    scope_add_entry(sc, "int_if", int_if_p, int_if_t);
 }
 
 void epilogue() {
