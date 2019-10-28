@@ -1,3 +1,5 @@
-[def (INT fact) [(INT n)] [if n [* n [fact [- n 1]]] 1]]
+[type test [(INT x) (INT y)]]
+[def (INT testest) [] [test.y [test 3 4]]]
+[def (INT fact) [(INT n)] [if [- n 1] [* n [fact [- n 1]]] 1]]
 [def (INT double) [(INT x)] [* 2 x]]
-[def (INT main) [] [debug_int [fact 10]]]
+[def (INT main) [] [debug_int [fact [debug_int [testest]]]]]

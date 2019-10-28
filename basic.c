@@ -184,6 +184,112 @@ int make_func_params(sexpr *params, char **ids, LLVMTypeRef *types) {
     return 1 + make_func_params(r, ids + 1, types + 1);
 }
 
+LLVMTypeRef codegen_type_definition(sexpr *se) {
+    assert(se);
+    assert(se->type == BRANCH);
+
+    sexpr *title = se->contents.n.l;
+    sexpr *info = se->contents.n.r;
+
+    assert(title);
+    assert(info);
+
+    /*
+     * TODO
+     * Decide how to do struct declarations.
+     * Would be nice to allow named and unnamed struct properties.
+     *
+     * What should accessing a struct's preoperties look like?
+     *
+     * Should it look like Haskell's property accessing? If it did, the struct
+     * type would also need to be mentioned, kinda like:
+     * `<struct_name> <property_name> <value>`
+     * Would require doing a special thing to get the property index from its
+     * name.
+     *
+     * Similar option is something like:
+     * `<struct_name>.<property_name> <value>`
+     * Where a function is defined for each struct-property combo.
+     * Think I'll go with this option for now.
+     */
+
+    /* FIXME: magic sizes */
+    char *prop_ids[50];
+    LLVMTypeRef prop_t[50];
+    int prop_c = make_func_params(info->contents.n.l, prop_ids, prop_t);
+
+    char *struct_id = title->contents.s;
+
+    debug("building struct %s\n", struct_id);
+
+    /* last parameter determines if struct is packed */
+    LLVMTypeRef struct_t = LLVMStructType(prop_t, prop_c, 0);
+
+    /*
+     * TODO
+     * I'm not sure what the second parameter of LLVMPointerType (unsigned
+     * AddressSpace) is used for:
+     * https://llvm.org/doxygen/group__LLVMCCoreTypeSequential.html#ga299fe6147083678d0494b1b875f542fa
+     * I'm guessing it's for restricting the address space the pointer can
+     * point to, which would be a cool property to expose to front-end
+     * languages.
+     */
+    LLVMTypeRef struct_ptr_t = LLVMPointerType(struct_t, 0);
+
+    /*
+     * Create a temporary builder for building some extra functions so that the
+     * main builder doesn't lose its place. Disposed of at end of scope.
+     */
+    LLVMBuilderRef util_builder = LLVMCreateBuilder();
+
+    /*
+     * Make a function for constructing an instance of this struct type. Takes
+     * each of the struct's properties as an individual argument.
+     */
+    LLVMTypeRef ctor_t = LLVMFunctionType(struct_ptr_t, prop_t, prop_c, 0);
+    LLVMValueRef ctor_p = LLVMAddFunction(module, struct_id, ctor_t);
+    LLVMBasicBlockRef ctor_b = LLVMAppendBasicBlock(ctor_p, "entry");
+    LLVMPositionBuilderAtEnd(util_builder, ctor_b);
+    /* FIXME: memory leak */
+    LLVMValueRef src = LLVMBuildMalloc(util_builder, struct_t, "src");
+    for (int i = 0; i < prop_c; i++) {
+        LLVMValueRef prop_pos = LLVMBuildStructGEP(util_builder, src, i, "pos");
+        LLVMValueRef param = LLVMGetParam(ctor_p, i);
+        LLVMBuildStore(util_builder, param, prop_pos);
+    }
+    LLVMBuildRet(util_builder, src);
+    scope_add_entry(sc, struct_id, ctor_p, ctor_t);
+
+    /*
+     * Make functions to retreive each property of the struct.
+     */
+    /* FIXME: magic size */
+    char prop_func_id[50];
+    for (int i = 0; i < prop_c; i++) {
+        /* TODO: maybe choose a different separator character? */
+        snprintf(prop_func_id, 50, "%s.%s", struct_id, prop_ids[i]);
+
+        LLVMTypeRef param_t[] = { struct_ptr_t };
+        LLVMTypeRef prop_func_t = LLVMFunctionType(prop_t[i], param_t, 1, 0);
+        LLVMValueRef prop_func_p =
+            LLVMAddFunction(module, prop_func_id, prop_func_t);
+        LLVMBasicBlockRef prop_func_b =
+            LLVMAppendBasicBlock(prop_func_p, "entry");
+        LLVMPositionBuilderAtEnd(util_builder, prop_func_b);
+        LLVMValueRef param = LLVMGetParam(prop_func_p, 0);
+        LLVMValueRef ptr =
+            LLVMBuildStructGEP(util_builder, param, i, "part");
+        LLVMValueRef ret = LLVMBuildLoad(util_builder, ptr, "deref");
+        LLVMBuildRet(util_builder, ret);
+
+        debug("adding %s to scope\n", prop_func_id);
+        scope_add_entry(sc, prop_func_id, prop_func_p, prop_func_t);
+    }
+    LLVMDisposeBuilder(util_builder);
+
+    return struct_t;
+}
+
 LLVMValueRef codegen_definition(sexpr *se) {
     assert(se);
     assert(se->type == BRANCH);
@@ -371,6 +477,8 @@ LLVMValueRef codegen_branch(sexpr *se) {
     if (l->type == ID) {
         if (!strcmp(l->contents.s, "def")) {
             res = codegen_definition(r);
+        } else if (!strcmp(l->contents.s, "type")) {
+            codegen_type_definition(r);
         } else if (!strcmp(l->contents.s, "if")) {
             res = codegen_conditional(r);
         } else {

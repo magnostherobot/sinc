@@ -13,8 +13,10 @@
 
 void free_layer(scope_layer *layer) {
     for (scope_entry *entry = layer->head; entry;) {
+        scope_entry *x = entry;
         entry = entry->prev;
-        free(entry);
+        free(x->id);
+        free(x);
     }
 
     free(layer);
@@ -40,7 +42,7 @@ void scope_add_entry(scope sc, char *id, LLVMValueRef val, LLVMTypeRef type) {
     scope_entry *new_entry = malloc(sizeof (*new_entry));
     if (!new_entry) error(GENERAL_ERROR, "cannot malloc?");
 
-    new_entry->id = id;
+    new_entry->id = strdup(id);
     new_entry->value = val;
     new_entry->type = type;
 
