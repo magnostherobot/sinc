@@ -1,7 +1,8 @@
 #include "debug.h"
 
-int debug_int(int i) {
-    debug("%d\n", i);
+char *debug_int(char *i) {
+    int *p = (int *) i;
+    debug("%d\n", *p);
     return i;
 }
 
