@@ -3,6 +3,7 @@
 
 #include "scope.h"
 #include "error.h"
+#include "debug.h"
 
 /*
  * Guess we'll use a linked list of linked lists for now, though that certainly
@@ -10,6 +11,8 @@
  * something.
  * TODO
  */
+
+void free_layer(scope_layer *layer);
 
 void free_layer(scope_layer *layer) {
     for (scope_entry *entry = layer->head; entry;) {

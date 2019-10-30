@@ -7,13 +7,13 @@
 #include "basic.h"
 
 extern int yylineno;
-int yylex();
+int yylex(void);
 void yyerror(char *s, ...);
 
 %}
 
 %union {
-    float f;
+    double f;
     int i;
     char *s;
     sexpr *u;
@@ -53,7 +53,10 @@ void yyerror(char *s, ...) {
     va_list ap;
     va_start(ap, s);
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wformat-nonliteral"
     fprintf(stderr, "%d: error: ", yylineno);
     vfprintf(stderr, s, ap);
     fprintf(stderr, "\n");
+#pragma clang diagnostic pop
 }

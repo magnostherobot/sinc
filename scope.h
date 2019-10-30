@@ -1,5 +1,5 @@
-#ifndef _SCOPE_H
-#define _SCOPE_H
+#ifndef SCOPE_H
+#define SCOPE_H
 
 #include <llvm-c/Core.h>
 
@@ -23,4 +23,4 @@ void scope_pop_layer(scope *sc);
 void scope_add_entry(scope sc, char *id, LLVMValueRef val, LLVMTypeRef type);
 scope_entry *scope_find(scope sc, char *id);
 
-#endif /* _SCOPE_H */
+#endif /* SCOPE_H */

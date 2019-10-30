@@ -13,7 +13,36 @@
 #include "error.h"
 #include "scope.h"
 
-int yyparse();
+typedef unsigned int uint;
+
+int yyparse(void);
+
+sexpr *new_sexpr(int type, contents val);
+
+void _fprint_sexpr(FILE *fd, sexpr *c);
+
+LLVMValueRef box_val(LLVMBuilderRef b, LLVMValueRef val, LLVMTypeRef type);
+LLVMValueRef unbox_val(LLVMBuilderRef b, LLVMValueRef box, LLVMTypeRef type);
+LLVMTypeRef make_function_type(uint param_c, LLVMBool arg);
+
+LLVMValueRef codegen_int(sexpr* s);
+LLVMValueRef codegen_id(char *id);
+LLVMValueRef codegen_print_int(LLVMValueRef ref);
+LLVMValueRef codegen_definition(sexpr *se);
+LLVMValueRef codegen_type_definition(sexpr *se);
+LLVMValueRef codegen_invocation(sexpr *se);
+LLVMValueRef codegen_conditional(sexpr *se);
+LLVMValueRef codegen_branch(sexpr *se);
+LLVMValueRef codegen_from_scope(char *func_id, LLVMValueRef *args, uint arg_c);
+LLVMValueRef codegen_inbuilt_functions(sexpr *se, uint arg_c,
+        LLVMValueRef *args_v);
+
+uint get_args_from_list(sexpr *se, LLVMValueRef *args);
+void get_param_info(sexpr *param_def, char **id, LLVMTypeRef *type);
+uint make_func_params(sexpr *params, char **ids, LLVMTypeRef *types);
+
+void prologue(void);
+void epilogue(void);
 
 sexpr *new_sexpr(int type, contents val) {
     /* FIXME: unchecked memory allocation! */
@@ -35,7 +64,7 @@ sexpr *new_str(char *str) {
     return new_sexpr(STRING, c);
 }
 
-sexpr *new_float(float num) {
+sexpr *new_float(double num) {
     contents c;
     c.f = num;
     return new_sexpr(FLOAT, c);
@@ -94,21 +123,21 @@ void print_sexpr(sexpr *se) {
     fprint_sexpr(stdin, se);
 }
 
-LLVMModuleRef module;
-LLVMValueRef function;
-LLVMBuilderRef builder;
+static LLVMModuleRef module;
+static LLVMValueRef function;
+static LLVMBuilderRef builder;
 
-LLVMTypeRef print_int_t;
-LLVMValueRef print_int_p;
+static LLVMTypeRef print_int_t;
+static LLVMValueRef print_int_p;
 
-LLVMTypeRef print_str_t;
-LLVMValueRef print_str_p;
+static LLVMTypeRef print_str_t;
+static LLVMValueRef print_str_p;
 
-LLVMTypeRef llvm_int_t;
-LLVMTypeRef llvm_str_t;
-LLVMTypeRef boxed_t;
+static LLVMTypeRef llvm_int_t;
+static LLVMTypeRef llvm_str_t;
+static LLVMTypeRef boxed_t;
 
-scope sc;
+static scope sc;
 
 LLVMValueRef box_val(LLVMBuilderRef b, LLVMValueRef val, LLVMTypeRef type) {
     /* FIXME: memory leak */
@@ -133,7 +162,8 @@ LLVMValueRef codegen_print_int(LLVMValueRef ref) {
 }
 
 LLVMValueRef codegen_int(sexpr *sexpr) {
-    LLVMValueRef val = LLVMConstInt(llvm_int_t, sexpr->contents.i, 0);
+    LLVMValueRef val =
+        LLVMConstInt(llvm_int_t, (unsigned) sexpr->contents.i, 0);
     LLVMValueRef box = box_val(builder, val, llvm_int_t);
     return box;
 }
@@ -147,19 +177,18 @@ LLVMValueRef codegen_id(char *id) {
 
 LLVMValueRef _codegen(sexpr *sexpr);
 
-LLVMTypeRef make_function_type(LLVMTypeRef ret_t, LLVMTypeRef *param_t,
-        int param_c, LLVMBool vararg) {
+LLVMTypeRef make_function_type(uint param_c, LLVMBool vararg) {
 
     /* FIXME: memory leak */
     LLVMTypeRef *boxed_params = malloc((sizeof (LLVMTypeRef)) * param_c);
-    for (int i = 0; i < param_c; i++) {
+    for (uint i = 0; i < param_c; i++) {
         boxed_params[i] = boxed_t;
     }
 
     return LLVMFunctionType(boxed_t, boxed_params, param_c, vararg);
 }
 
-int get_args_from_list(sexpr *se, LLVMValueRef *args) {
+uint get_args_from_list(sexpr *se, LLVMValueRef *args) {
     debug("getting args from list @%p\n", (void *) se);
     if (!se) return 0;
     assert(se->type == BRANCH);
@@ -168,7 +197,7 @@ int get_args_from_list(sexpr *se, LLVMValueRef *args) {
     return 1 + get_args_from_list(se->contents.n.r, args + 1);
 }
 
-void get_param_info(sexpr* param_def, char **id, LLVMTypeRef *type) {
+void get_param_info(sexpr *param_def, char **id, LLVMTypeRef *type) {
     assert(param_def);
     assert(param_def->type == BRANCH);
 
@@ -194,7 +223,7 @@ void get_param_info(sexpr* param_def, char **id, LLVMTypeRef *type) {
     }
 }
 
-int make_func_params(sexpr *params, char **ids, LLVMTypeRef *types) {
+uint make_func_params(sexpr *params, char **ids, LLVMTypeRef *types) {
     if (!params) return 0;
 
     assert(params->type == BRANCH);
@@ -210,7 +239,7 @@ int make_func_params(sexpr *params, char **ids, LLVMTypeRef *types) {
     return 1 + make_func_params(r, ids + 1, types + 1);
 }
 
-LLVMTypeRef codegen_type_definition(sexpr *se) {
+LLVMValueRef codegen_type_definition(sexpr *se) {
     assert(se);
     assert(se->type == BRANCH);
 
@@ -242,7 +271,7 @@ LLVMTypeRef codegen_type_definition(sexpr *se) {
     /* FIXME: magic sizes */
     char *prop_ids[50];
     LLVMTypeRef prop_t[50];
-    int prop_c = make_func_params(info->contents.n.l, prop_ids, prop_t);
+    uint prop_c = make_func_params(info->contents.n.l, prop_ids, prop_t);
 
     char *struct_id = title->contents.s;
 
@@ -272,13 +301,13 @@ LLVMTypeRef codegen_type_definition(sexpr *se) {
      * Make a function for constructing an instance of this struct type. Takes
      * each of the struct's properties as an individual argument.
      */
-    LLVMTypeRef ctor_t = make_function_type(struct_ptr_t, prop_t, prop_c, 0);
+    LLVMTypeRef ctor_t = make_function_type(prop_c, 0);
     LLVMValueRef ctor_p = LLVMAddFunction(module, struct_id, ctor_t);
     LLVMBasicBlockRef ctor_b = LLVMAppendBasicBlock(ctor_p, "entry");
     LLVMPositionBuilderAtEnd(util_b, ctor_b);
     /* FIXME: memory leak */
     LLVMValueRef src = LLVMBuildMalloc(util_b, struct_t, "src");
-    for (int i = 0; i < prop_c; i++) {
+    for (uint i = 0; i < prop_c; i++) {
         LLVMValueRef prop_pos = LLVMBuildStructGEP(util_b, src, i, "pos");
         LLVMValueRef param = LLVMGetParam(ctor_p, i);
         LLVMValueRef val = unbox_val(util_b, param, prop_t[i]);
@@ -293,12 +322,11 @@ LLVMTypeRef codegen_type_definition(sexpr *se) {
      */
     /* FIXME: magic size */
     char prop_func_id[50];
-    for (int i = 0; i < prop_c; i++) {
+    for (uint i = 0; i < prop_c; i++) {
         /* TODO: maybe choose a different separator character? */
         snprintf(prop_func_id, 50, "%s.%s", struct_id, prop_ids[i]);
 
-        LLVMTypeRef param_t[] = { struct_ptr_t };
-        LLVMTypeRef prop_func_t = make_function_type(prop_t[i], param_t, 1, 0);
+        LLVMTypeRef prop_func_t = make_function_type(1, 0);
         LLVMValueRef prop_func_p =
             LLVMAddFunction(module, prop_func_id, prop_func_t);
         LLVMBasicBlockRef prop_func_b =
@@ -318,7 +346,7 @@ LLVMTypeRef codegen_type_definition(sexpr *se) {
     }
     LLVMDisposeBuilder(util_b);
 
-    return struct_t;
+    return ctor_p;
 }
 
 LLVMValueRef codegen_definition(sexpr *se) {
@@ -345,11 +373,11 @@ LLVMValueRef codegen_definition(sexpr *se) {
     /* FIXME: magic sizes */
     char *ids[50];
     LLVMTypeRef param_t[50];
-    int param_c = make_func_params(info->contents.n.l, ids, param_t);
+    uint param_c = make_func_params(info->contents.n.l, ids, param_t);
 
     debug("building function %s\n", func_id);
 
-    LLVMTypeRef func_t = make_function_type(ret_type, param_t, param_c, 0);
+    LLVMTypeRef func_t = make_function_type(param_c, 0);
     LLVMValueRef func_p = LLVMAddFunction(module, func_id, func_t);
     LLVMBasicBlockRef func_b = LLVMAppendBasicBlock(func_p, "entry");
     LLVMPositionBuilderAtEnd(builder, func_b);
@@ -359,7 +387,7 @@ LLVMValueRef codegen_definition(sexpr *se) {
     scope_add_entry(sc, func_id, func_p, func_t);
 
     scope_push_layer(&sc);
-    for (int i = 0; i < param_c; i++) {
+    for (uint i = 0; i < param_c; i++) {
         scope_add_entry(sc, ids[i], LLVMGetParam(func_p, i), param_t[i]);
     }
 
@@ -374,7 +402,7 @@ LLVMValueRef codegen_definition(sexpr *se) {
     return func_p;
 }
 
-LLVMValueRef codegen_from_scope(char *func_id, LLVMValueRef *args, int arg_c) {
+LLVMValueRef codegen_from_scope(char *func_id, LLVMValueRef *args, uint arg_c) {
     scope_entry *entry = scope_find(sc, func_id);
     if (!entry) return 0;
 
@@ -401,7 +429,7 @@ LLVMValueRef codegen_from_scope(char *func_id, LLVMValueRef *args, int arg_c) {
     res = res_box; \
 } while (0)
 
-LLVMValueRef codegen_inbuilt_functions(sexpr *se, int arg_c, LLVMValueRef
+LLVMValueRef codegen_inbuilt_functions(sexpr *se, uint arg_c, LLVMValueRef
         *args_v) {
 
     assert(se);
@@ -448,7 +476,7 @@ LLVMValueRef codegen_invocation(sexpr *se) {
      */
     /* FIXME: magic values */
     LLVMValueRef args[50];
-    int arg_c = get_args_from_list(r, args);
+    uint arg_c = get_args_from_list(r, args);
 
     LLVMValueRef res = codegen_from_scope(func_id, args, arg_c);
     if (!res) res = codegen_inbuilt_functions(se, arg_c, args);
@@ -524,7 +552,7 @@ LLVMValueRef codegen_branch(sexpr *se) {
         if (!strcmp(l->contents.s, "def")) {
             res = codegen_definition(r);
         } else if (!strcmp(l->contents.s, "type")) {
-            codegen_type_definition(r);
+            res = codegen_type_definition(r);
         } else if (!strcmp(l->contents.s, "if")) {
             res = codegen_conditional(r);
         } else {
@@ -571,8 +599,7 @@ void prologue() {
     builder = LLVMCreateBuilder();
 
     /* add print_int */
-    LLVMTypeRef print_int_params[] = { llvm_int_t };
-    print_int_t = make_function_type(LLVMInt32Type(), print_int_params, 1, 0);
+    print_int_t = make_function_type(1, 0);
     print_int_p = LLVMAddFunction(module, "debug_int", print_int_t);
     scope_add_entry(sc, "debug_int", print_int_p, print_int_t);
 

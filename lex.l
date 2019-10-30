@@ -11,6 +11,7 @@
 #include "parse.h"
 
 void yyerror(const char *s, ...);
+char *str_value(char *s);
 
 char *str_value(char *s) {
     s++;

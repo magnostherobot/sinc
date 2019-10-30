@@ -1,5 +1,5 @@
-#ifndef _ERROR_H
-#define _ERROR_H
+#ifndef ERROR_H
+#define ERROR_H
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,4 +19,4 @@ enum errcode {
     exit(v); \
 } while (0)
 
-#endif /* _ERROR_H */
+#endif /* ERROR_H */

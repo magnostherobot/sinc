@@ -1,4 +1,13 @@
-CFLAGS = --std=c99 -Wpedantic -Wall
+CC = clang
+CXX = clang++
+YACC = bison
+LEX = flex
+
+DEBUG = -ggdb3 -O0
+RELEASE = -O3 -DNDEBUG
+
+CFLAGS = --std=c99 -Weverything
+LFLAGS = -D_POSIX_C_SOURCE=200809L
 
 CFLAGS   += $(shell llvm-config --cflags)
 CXXFLAGS += $(shell llvm-config --cppflags)
@@ -17,9 +26,18 @@ scope.o: scope.h error.h
 basic: basic.o parse.o lex.o scope.o
 	$(LINK.cc) $(OUTPUT_OPTION) $^ $(LDLIBS)
 
-parse.h: parse.y
-	$(YACC) -d -o /dev/null $<
-	mv -f y.tab.h $@
+# explicit rules for parse and lex prevent -Weverything being passed to them
+parse.o: parse.c
+	$(CC) -c --std=c99 $(OUTPUT_OPTION) $<
+
+lex.o: lex.c
+	$(CC) -c --std=c99 $(OUTPUT_OPTION) $<
+
+%.h: %.y
+	$(YACC) --defines=$@ $<
+
+%.c: %.y
+	$(YACC) -o $@ $<
 
 # test stuff (warning: influenced by compiler flags declared above!)
 # TODO should probably rearrange the system so tests don't use the same build
