@@ -2,8 +2,11 @@
 #include <stdio.h>
 #include <assert.h>
 #include <string.h>
+#include <unistd.h>
 
 #include <llvm-c/Core.h>
+#include <llvm-c/ExecutionEngine.h>
+#include <llvm-c/Target.h>
 #include <llvm-c/Analysis.h>
 #include <llvm-c/BitWriter.h>
 
@@ -14,7 +17,42 @@
 #include "scope.h"
 
 typedef unsigned int uint;
+typedef void *(*main_func_t)(void);
 
+enum mode_t {
+    INTERPRET,
+    COMPILE
+};
+
+enum format_t {
+    BC,
+    LL
+};
+
+static LLVMModuleRef module;
+static LLVMValueRef function;
+static LLVMBuilderRef builder;
+
+static LLVMTypeRef gc_alloc_t;
+static LLVMValueRef gc_alloc_p;
+
+static LLVMTypeRef print_int_t;
+static LLVMValueRef print_int_p;
+
+static LLVMTypeRef print_str_t;
+static LLVMValueRef print_str_p;
+
+static LLVMTypeRef llvm_int_t;
+static LLVMTypeRef llvm_str_t;
+static LLVMTypeRef boxed_t;
+
+static scope sc;
+
+static char *output_fn;
+static enum mode_t mode;
+static enum format_t format;
+
+extern FILE *yyin;
 int yyparse(void);
 
 sexpr *new_sexpr(int type, contents val);
@@ -36,10 +74,14 @@ LLVMValueRef codegen_branch(sexpr *se);
 LLVMValueRef codegen_from_scope(char *func_id, LLVMValueRef *args, uint arg_c);
 LLVMValueRef codegen_inbuilt_functions(sexpr *se, uint arg_c,
         LLVMValueRef *args_v);
+LLVMValueRef _codegen(sexpr *sexpr);
 
 uint get_args_from_list(sexpr *se, LLVMValueRef *args);
 void get_param_info(sexpr *param_def, char **id, LLVMTypeRef *type);
 uint make_func_params(sexpr *params, char **ids, LLVMTypeRef *types);
+
+void write_bitcode(LLVMModuleRef mod, char *fn);
+void write_module(LLVMModuleRef mod, char *fn);
 
 void prologue(void);
 void epilogue(void);
@@ -123,28 +165,19 @@ void print_sexpr(sexpr *se) {
     fprint_sexpr(stdin, se);
 }
 
-static LLVMModuleRef module;
-static LLVMValueRef function;
-static LLVMBuilderRef builder;
-
-static LLVMTypeRef print_int_t;
-static LLVMValueRef print_int_p;
-
-static LLVMTypeRef print_str_t;
-static LLVMValueRef print_str_p;
-
-static LLVMTypeRef llvm_int_t;
-static LLVMTypeRef llvm_str_t;
-static LLVMTypeRef boxed_t;
-
-static scope sc;
-
 LLVMValueRef box_val(LLVMBuilderRef b, LLVMValueRef val, LLVMTypeRef type) {
     /* FIXME: memory leak */
-    LLVMValueRef box = LLVMBuildMalloc(b, type, "box");
-    LLVMBuildStore(b, val, box);
-    LLVMValueRef cast = LLVMBuildPointerCast(b, box, boxed_t, "cast");
-    return cast;
+    /* LLVMValueRef box = LLVMBuildMalloc(b, type, "box"); */
+    LLVMValueRef size = LLVMSizeOf(type);
+    LLVMValueRef size_cast = LLVMConstIntCast(size, llvm_int_t, 0);
+    LLVMTypeRef ptr_type = LLVMPointerType(type, 0);
+
+    LLVMValueRef box =
+        LLVMBuildCall2(b, gc_alloc_t, gc_alloc_p, &size_cast, 1, "boxed");
+    LLVMValueRef box_cast = LLVMBuildPointerCast(b, box, ptr_type, "box_cast");
+    LLVMBuildStore(b, val, box_cast);
+
+    return box;
 }
 
 LLVMValueRef unbox_val(LLVMBuilderRef b, LLVMValueRef box, LLVMTypeRef type) {
@@ -175,9 +208,7 @@ LLVMValueRef codegen_id(char *id) {
     return entry->value;
 }
 
-LLVMValueRef _codegen(sexpr *sexpr);
-
-LLVMTypeRef make_function_type(uint param_c, LLVMBool vararg) {
+LLVMTypeRef make_function_type(unsigned param_c, LLVMBool vararg) {
 
     /* FIXME: memory leak */
     LLVMTypeRef *boxed_params = malloc((sizeof (LLVMTypeRef)) * param_c);
@@ -412,13 +443,6 @@ LLVMValueRef codegen_from_scope(char *func_id, LLVMValueRef *args, uint arg_c) {
     return res;
 }
 
-/* typedef LLVMValueRef llvm_binop(LLVMBuilderRef, LLVMValueRef, LLVMValueRef, */
-/*         const char*); */
-
-/* LLVMValueRef codegen_binop(LLVMBuilderRef b, LLVMValueRef x, LLVMValueRef y, */
-/*         llvm_binop *op) { */
-/* } */
-
 /* TODO: maybe make a function? */
 #define codegen_binop(b, x, y, op) do { \
     assert(arg_c == 2); \
@@ -469,6 +493,7 @@ LLVMValueRef codegen_invocation(sexpr *se) {
     assert(l->type == ID);
 
     char *func_id = l->contents.s;
+    debug("invoking %s\n", func_id);
 
     /*
      * args_t may not be needed as we can just get the types of values from the
@@ -539,7 +564,6 @@ LLVMValueRef codegen_conditional(sexpr *se) {
 }
 
 LLVMValueRef codegen_branch(sexpr *se) {
-    debug("codegenning branch @%p\n", (void *) se);
 
     assert(se);
 
@@ -564,7 +588,6 @@ LLVMValueRef codegen_branch(sexpr *se) {
 
     }
 
-    debug("codegenned branch @%p\n", (void *) se);
     return res;
 }
 
@@ -595,8 +618,14 @@ void prologue() {
     llvm_str_t = LLVMPointerType(LLVMInt8Type(), 0);
     boxed_t = LLVMPointerType(LLVMInt8Type(), 0);
 
+    char *target_triple = LLVMGetDefaultTargetTriple();
+    debug("using target %s\n", target_triple);
+
     module = LLVMModuleCreateWithName("main_module");
+    LLVMSetTarget(module, target_triple);
     builder = LLVMCreateBuilder();
+
+    LLVMDisposeMessage(target_triple);
 
     /* add print_int */
     print_int_t = make_function_type(1, 0);
@@ -608,20 +637,137 @@ void prologue() {
     print_str_t = LLVMFunctionType(LLVMInt32Type(), print_str_params, 1, 0);
     print_str_p = LLVMAddFunction(module, "debug_str", print_str_t);
     scope_add_entry(sc, "debug_str", print_str_p, print_str_t);
+
+    /* add gc_alloc */
+    LLVMTypeRef gc_alloc_params[] = { llvm_int_t };
+    gc_alloc_t = LLVMFunctionType(boxed_t, gc_alloc_params, 1, 0);
+    gc_alloc_p = LLVMAddFunction(module, "gc_alloc", gc_alloc_t);
+    scope_add_entry(sc, "gc_alloc", gc_alloc_p, gc_alloc_t);
+}
+
+void write_bitcode(LLVMModuleRef mod, char *fn) {
+    LLVMWriteBitcodeToFile(mod, fn);
+}
+
+void write_module(LLVMModuleRef mod, char *fn) {
+    char *code = LLVMPrintModuleToString(mod);
+    FILE *fp = fopen(fn, "w");
+    fprintf(fp, "%s", code);
+    LLVMDisposeMessage(code);
 }
 
 void epilogue() {
-    /* LLVMVerifyModule(module, LLVMAbortProcessAction, 0); */
+    char *error_str = 0;
 
-    char *module_status = LLVMPrintModuleToString(module);
-    printf("%s\n", module_status);
-    LLVMDisposeMessage(module_status);
+    /* LLVMVerifyModule(module, LLVMAbortProcessAction, &error_str); */
+    /* LLVMDisposeMessage(error_str); */
+
+    if (mode == COMPILE) {
+        if (format == BC) {
+            write_bitcode(module, output_fn ? output_fn : "/dev/stdout");
+        } else {
+            write_module(module, output_fn ? output_fn : "/dev/stdout");
+        }
+
+    } else {
+
+        LLVMExecutionEngineRef engine;
+        error_str = 0;
+
+        LLVMLinkInMCJIT();
+        LLVMInitializeNativeTarget();
+        LLVMInitializeNativeAsmPrinter();
+
+        if (LLVMCreateExecutionEngineForModule(&engine, module, &error_str)) {
+            error(GENERAL_ERROR, "failed to create execution engine");
+        }
+
+        if (error_str) {
+            error(GENERAL_ERROR, "%s", error_str);
+        }
+
+        /*
+         * This is a very ugly cast, fetching a function pointer from the JIT'd
+         * code. C will never like this cast because LLVMGetFunctionAddress
+         * returns a uint64_t (deliberately, so that a cast is necessary).
+         */
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wbad-function-cast"
+        main_func_t main_func =
+            (main_func_t) LLVMGetFunctionAddress(engine, "main");
+#pragma clang diagnostic pop
+
+        int *res = (int *) main_func();
+        printf("%i\n", *res);
+    }
 
     LLVMDisposeBuilder(builder);
     LLVMDisposeModule(module);
 }
 
-int main() {
+int main(int argc, char **argv) {
+    int c;
+
+    output_fn = 0;
+    mode = INTERPRET;
+    format = LL;
+
+    while ((c = getopt(argc, argv, "bchilo:")) != -1) {
+        switch (c) {
+            case 'b':
+                format = BC;
+                break;
+
+            case 'c':
+                mode = COMPILE;
+                break;
+
+            case 'h':
+                printf( "usage: %s [options] <input_file>\n"
+                        "-b           Specify bitcode-format output\n"
+                        "-c           Compile mode\n"
+                        "-h           Print this help message\n"
+                        "-i           Interpret mode\n"
+                        "-l           Specify human-readable output\n"
+                        "-o <output>  Specify output filename\n",
+                        argv[0]);
+                exit(0);
+
+            case 'i':
+                mode = INTERPRET;
+                break;
+
+            case 'l':
+                format = LL;
+                break;
+
+            case 'o':
+                output_fn = optarg;
+                break;
+
+            case '?':
+                switch (optopt) {
+                    case 'o':
+                        error(INVALID_ARGUMENTS,
+                                "-%c option requires an argument", optopt);
+                        break;
+
+                    default:
+                        error(INVALID_ARGUMENTS, "unknown option %c", optopt);
+                }
+                break;
+
+            default:
+                error(INVALID_ARGUMENTS, "error parsing arguments");
+        }
+    }
+
+    if (argc - optind > 1) {
+        error(INVALID_ARGUMENTS, "too many arguments");
+    } else if (argc - optind == 1) {
+        yyin = fopen(argv[argc - 1], "r");
+    }
+
     prologue();
     yyparse();
     epilogue();

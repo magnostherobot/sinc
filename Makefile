@@ -3,16 +3,18 @@ CXX = clang++
 YACC = bison
 LEX = flex
 
-DEBUG = -ggdb3 -O0
+DEBUG = -ggdb3 -O0 -DGC_DEBUG
 RELEASE = -O3 -DNDEBUG
 
-CFLAGS = --std=c99 -Weverything
+CFLAGS = --std=c99 -Wpedantic -Wall -Wextra -Werror $(DEBUG)
 LFLAGS = -D_POSIX_C_SOURCE=200809L
+
+LLVM_MODULES = core executionengine mcjit interpreter analysis native bitwriter
 
 CFLAGS   += $(shell llvm-config --cflags)
 CXXFLAGS += $(shell llvm-config --cppflags)
 LDFLAGS  += $(shell llvm-config --ldflags)
-LDLIBS   += $(shell llvm-config --libs core analysis --system-libs)
+LDLIBS   += $(shell llvm-config --libs $(LLVM_MODULES) --system-libs) -lgc
 
 .PHONY: default all clean
 default: all
@@ -51,8 +53,14 @@ simple: simple.o common.o
 %.o: %.ll
 	clang -c $(OUTPUT_OPTION) $<
 
+%.o: %.bc
+	clang -c $(OUTPUT_OPTION) $<
+
 %.ll: %.int basic
-	< $< ./basic > $@
+	./basic -clo $@ $<
+
+%.bc: %.int basic
+	./basic -cbo $@ $<
 
 %.ll: %.c
 	clang -S -emit-llvm $(OUTPUT_OPTION) $<

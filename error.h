@@ -9,7 +9,8 @@ enum errcode {
     GENERAL_ERROR = 1,
     COMMAND_NOT_FOUND = 2,
     UNKNOWN_ID,
-    SYNTAX_ERROR
+    SYNTAX_ERROR,
+    INVALID_ARGUMENTS
 };
 
 /* FIXME: double fprintf is ugly */
