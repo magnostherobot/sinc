@@ -1,14 +1,20 @@
 #include <stddef.h>
-#include <gc.h>
+#include <stdio.h>
 
-#include "debug.h"
+#include <gc.h>
 
 void *inter_main(void);
 
 void *debug_int(void *i) {
     int *p = (int *) i;
-    debug("%d\n", *p);
+    fprintf(stderr, "%d\n", *p);
     return i;
+}
+
+void *debug_func_call(void *f) {
+    char *func_id = (char *) f;
+    fprintf(stderr, "%s\n", func_id);
+    return 0;
 }
 
 void *gc_alloc(int size) {
@@ -34,5 +40,7 @@ int main() {
      */
     GC_INIT();
 
-    return (int) inter_main();
+    int *ret = (int *) inter_main();
+
+    return *ret;
 }

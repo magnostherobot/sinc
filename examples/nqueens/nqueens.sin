@@ -1,0 +1,67 @@
+[dec cons [head tail]]
+[dec nil []]
+[dec head [xs]]
+[dec tail [xs]]
+[dec length [xs]]
+
+[type pair [(INT left) (INT right)]]
+
+[def nsoln [nq]
+    [length [gen nq nq]]]
+
+[def inter_main []
+    [debug_int [nsoln 4]]]
+
+[def (INT ==) [(INT a) (INT b)]
+    [if [- a b] 1 0]]
+
+[def (INT not) [(INT x)]
+    [if x 0 1]]
+
+[def (INT !=) [(INT a) (INT b)]
+    [not [== a b]]]
+
+[def (INT and) [(INT a) (INT b)]
+    [if a [if b 1 0] 0]]
+
+[def (INT length) [(INT xs)]
+    [debug_int [if xs [+ 1 [length [cons.tail xs]]] 0]]]
+
+[def (INT count) [(INT from) (INT to)]
+    [if [== from to] to [cons from [count [+ from 1] to]]]]
+
+[def (INT concat) [(INT as) (INT bs)]
+    [if [cons.tail as]
+        [cons [cons.head as] [concat [cons.tail as] bs]]
+        [cons [cons.head as] bs]]]
+
+[def (INT combo2) [(INT a) (INT bs)]
+    [if bs
+        [cons [pair a [cons.head bs]] [combo2 a [cons.tail bs]]]
+        0]]
+
+[def (INT combo) [(INT as) (INT bs)]
+    [if as
+        [concat [combo2 [cons.head as] bs] [combo [cons.tail as] bs]]
+        0]]
+
+[def (INT safe) [(INT x) (INT d) (INT qs)]
+    [if qs
+        [and [and [!= x [cons.head qs]]
+                  [!= x [+ [cons.head qs] d]]]
+             [and [!= x [- [cons.head qs] d]]
+                  [safe x [+ d 1] [cons.tail qs]]]]
+        1]]
+
+[def (INT safe_filter) [(INT xs)]
+    [if [safe [pair.left xs] 1 [pair.right xs]]
+        [cons [cons.head xs] [safe_filter [cons.tail xs]]]
+        [safe_filter [cons.tail xs]]]]
+
+[def (INT gen) [(INT n) (INT nq)]
+    [if n [safe_filter [combo [gen [- n 1] nq] [count 1 nq]]] 0]]
+
+[def (INT nsoln) [(INT nq)]
+    [length [gen nq nq]]]
+
+[def (INT inter_main) [] [debug_int [nsoln 4]]]

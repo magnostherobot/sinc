@@ -1,14 +1,19 @@
+%locations
+
 %{
 
 #include <stdio.h>
 #include <stdarg.h>
 #include <stdlib.h>
 
-#include "basic.h"
+#include "sexpr.h"
+#include "sinter.h"
 
 extern int yylineno;
 int yylex(void);
 void yyerror(char *s, ...);
+
+sexpr *ast;
 
 %}
 
@@ -32,20 +37,20 @@ void yyerror(char *s, ...);
 %%
 
 cmds:
-    | cmds sexpr { fprint_sexpr(stderr, $2); codegen($2); }
+    | cmds sexpr { handle($2); }
 
-sexpr: '(' sexpr ';' sexpr ')' { $$ = new_node($2, $4); }
-     | '(' sexpr     sexpr ')' { $$ = new_node($2, $3); }
+sexpr: '(' sexpr ';' sexpr ')' { $$ = new_node($2, $4, yylloc); }
+     | '(' sexpr     sexpr ')' { $$ = new_node($2, $3, yylloc); }
      | '[' lexpr { $$ = $2; }
-     | INT    { $$ = new_int($1); }
-     | FLOAT  { $$ = new_float($1); }
-     | ID     { $$ = new_id($1); }
+     | INT    { $$ = new_int($1, yylloc); }
+     | FLOAT  { $$ = new_float($1, yylloc); }
+     | ID     { $$ = new_id($1, yylloc); }
      | NIL    { $$ = 0; }
-     | STRING { $$ = new_str($1); }
+     | STRING { $$ = new_str($1, yylloc); }
 
 lexpr: ']' { $$ = 0; }
-     | sexpr ';' lexpr { $$ = new_node($1, $3); }
-     | sexpr     lexpr { $$ = new_node($1, $2); }
+     | sexpr ';' lexpr { $$ = new_node($1, $3, yylloc); }
+     | sexpr     lexpr { $$ = new_node($1, $2, yylloc); }
 
 %%
 

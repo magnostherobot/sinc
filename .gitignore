@@ -1,12 +1,10 @@
 *.o
 *.bc
-*.ll
 
 lex.c
 parse.c
 parse.h
 
-basic
-simple
+sinter
 
 *.sw*

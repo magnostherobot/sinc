@@ -1,0 +1,21 @@
+[type cons [(INT head) (cons tail)]]
+[def (INT ==) [(INT a) (INT b)] [if [- a b] 0 1]]
+[def (INT hastail) [(INT list)] [if [cons.tail list] 1 0]]
+[def (INT carry_guess) [(INT d) (INT base)] [/ d base]]
+[def (INT remainder) [(INT d) (INT base)] [% d base]]
+[def (INT carry_propagate) [(INT a) (INT b)] [+ 1 1]]
+[def (INT next_carry) [(INT base) (INT ds)]
+    [carry_propagate [+ base 1] [cons.tail ds]]]
+[def (INT d_corrected) [(INT base) (INT ds)]
+    [+ [cons.head ds] [next_carry base ds]]]
+
+[def (INT carry_propagate) [(INT base) (INT ds)] [
+    if [== [carry_guess [cons.head ds] base] [/ [+ [cons.head ds] 9] base]]
+        [cons [carry_guess [cons.head ds] base]
+            [+ [remainder [cons.head ds] base] [next_carry base [cons.tail ds]]]]
+        [cons [/ d_corrected base] [% d_corrected base]]
+]]
+
+[def (INT e) [(INT n)]
+    [
+[def (INT inter_main) [] [debug_int [+ 1 1]]]

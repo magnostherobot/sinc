@@ -1,0 +1,76 @@
+[type hunk [func args_req arg_c args]]
+
+[dec run_func [f v as]]
+
+[dec list [x n]]
+[dec nil []]
+[dec is_nil [x]]
+[dec append [xs x]]
+[dec head [xs]]
+[dec tail [xs]]
+
+[dec left [x]]
+[dec right [x]]
+[dec is_right [x]]
+[dec right.val [x]]
+[dec left.val [x]]
+
+[def = [a b]
+    [if [- a b]
+        0
+        1]]
+
+[def add_arg [h a]
+    [hunk [hunk.func h]
+          [hunk.args_req h]
+          [+ [hunk.arg_c h] 1]
+          [append [hunk.args h] a]]]
+
+[def run_hunk [h]
+    [run_func [hunk.func h] [hunk.args_req h] [hunk.args h]]]
+
+[def maybe_run_hunk [h]
+    [if [= [hunk.args_req h] [hunk.arg_c h]]
+        [left [run_hunk h]]
+        [right h]]]
+
+[def add_arg_and_maybe_run [h a]
+    [maybe_run_hunk [add_arg h a]]]
+
+[def !1 [h a]
+    [add_arg_and_maybe_run h a]]
+
+[def swap_args [f a b]
+    [f b a]]
+
+[def make_hunk [f v]
+    [if v
+        [right [hunk f v 0 [nil]]]
+        [left [run_func f 0 [nil]]]]]
+
+[def !> [h a]
+    [if [is_right h]
+        [!1 [right.val h] a]
+        h]]
+
+[dec add_args_and_maybe_run_rev [as h]]
+
+[def add_args_and_maybe_run [h as]
+    [if [is_nil as]
+        h
+        [add_args_and_maybe_run [!> h [head as]]
+                                [tail as]]]]
+
+[def ! [h as]
+    [add_args_and_maybe_run h as]]
+
+[def countdown [x]
+    [if x
+        [list x [countdown [- x 1]]]
+        [nil]]]
+
+[def mult [x y]
+    [* x y]]
+
+[def inter_main []
+    [debug_int [left.val [! [make_hunk mult 2] [countdown 10]]]]]

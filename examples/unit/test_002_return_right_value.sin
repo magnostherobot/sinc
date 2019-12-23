@@ -1,0 +1,7 @@
+[dec assert_equals [a b c]]
+
+[def returns_ten []
+    10]
+
+[def test []
+    [assert_equals [returns_ten] 10 0]]

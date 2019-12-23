@@ -1,0 +1,25 @@
+[type left_  [kind val]]
+[type right_ [kind val]]
+
+[def left [val]
+    [left_ 0 val]]
+
+[def right [val]
+    [right_ 1 val]]
+
+[def left.val [x]
+    [left_.val x]]
+
+[def right.val [x]
+    [right_.val x]]
+
+[def is_right [x]
+    [right_.kind x]]
+
+[def Either.>>= [a f]
+    [if [is_right a]
+        [f [right.val a]]
+        a]]
+
+[def Either.return [x]
+    [right x]]

@@ -45,6 +45,8 @@ void scope_add_entry(scope sc, char *id, LLVMValueRef val, LLVMTypeRef type) {
     scope_entry *new_entry = malloc(sizeof (*new_entry));
     if (!new_entry) error(GENERAL_ERROR, "cannot malloc?");
 
+    debug("adding entry for %s\n", id);
+
     new_entry->id = strdup(id);
     new_entry->value = val;
     new_entry->type = type;

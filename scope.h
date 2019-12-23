@@ -7,6 +7,7 @@ typedef struct scope_entry {
     char *id;
     LLVMValueRef value;
     LLVMTypeRef type;
+    LLVMMetadataRef metadata;
     struct scope_entry *prev;
 } scope_entry;
 

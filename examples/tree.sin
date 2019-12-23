@@ -1,0 +1,16 @@
+[type branch_ [kind val l r]]
+[type leaf_ [kind val]]
+
+[dec == [a b]]
+
+[def branch [v l r]
+    [branch_ 0 v l r]]
+
+[def leaf [x]
+    [leaf_ 1 x]]
+
+[def is_branch [x]
+    [== [branch_.kind x] 0]]
+
+[def is_leaf [x]
+    [== [leaf_.kind x] 1]]

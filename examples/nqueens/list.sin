@@ -1,0 +1,56 @@
+[type cons_ [kind head tail]]
+[type nil_  [kind]]
+
+[def cons [head tail]
+    [cons_ 1 head tail]]
+
+[def nil []
+    [nil_ 0]]
+
+[def head [xs]
+    [cons_.head xs]]
+
+[def tail [xs]
+    [cons_.tail xs]]
+
+[def has_tail [xs]
+    [nil_.kind xs]]
+
+[def is_nil [x]
+    [if [nil_.kind x]
+        0
+        1]]
+
+[def concat [as bs]
+    [cons [head as]
+          [if [is_nil [tail as]]
+              bs
+              [concat [tail as] bs]]]]
+
+[def alt_concat [as bs]
+    [if [is_nil [tail as]]
+        [cons [head as] bs]
+        [cons [head as] [concat [tail as] bs]]]]
+
+[def flatten_once [xs]
+    [concat [head xs] [flatten_once [tail xs]]]]
+
+[def List.>>= [ma f]
+    [flatten_once [map ma f]]]
+
+[def List.return [a]
+    [cons a [nil]]]
+
+[def prepend [x xs]
+    [cons x xs]]
+
+[def append [xs x]
+    [if [is_nil xs]
+        [cons [debug_int x] [nil]]
+        [cons [head xs] [append [tail xs] x]]]]
+
+[def map [xs f]
+    [if [is_nil xs]
+        xs
+        [cons [f [head xs]]
+              [map [tail xs] f]]]]
