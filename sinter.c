@@ -19,6 +19,8 @@ static char *input_filename;
 static char *output_filename;
 static format_t format;
 
+static boxing_rule_t boxing_rules;
+
 extern FILE *yyin;
 int yyparse(void);
 
@@ -71,7 +73,7 @@ void prologue() {
         case LLVM_INTERMEDIATE:
         case BITCODE:
         case INTERPRET:
-            llvm_codegen_prologue(input_filename);
+            llvm_codegen_prologue(input_filename, boxing_rules);
             break;
 
         case GRAPHVIZ:
@@ -133,9 +135,12 @@ int main(int argc, char **argv) {
     output_filename = 0;
     format = LLVM_INTERMEDIATE;
 
+    boxing_rules = ALWAYS_BOX;
     verbose = 0;
 
-    while ((c = getopt(argc, argv, "bghilo:qsv")) != -1) {
+    debug("\n");
+
+    while ((c = getopt(argc, argv, "bghilo:qsu:v")) != -1) {
         switch (c) {
             case 'b':
                 format = BITCODE;
@@ -146,17 +151,19 @@ int main(int argc, char **argv) {
                 break;
 
             case 'h':
-                printf( "usage: %s [options] <input_file>\n"
-                        "-b           Specify bitcode-format output\n"
-                        "-c           Compile mode\n"
-                        "-g           Output a Graphviz .dot file\n"
-                        "-h           Print this help message\n"
-                        "-i           Interpret mode\n"
-                        "-l           Specify human-readable output\n"
-                        "-o <output>  Specify output filename\n"
-                        "-q           Quiet (default)\n"
-                        "-s           Output S-expression description\n"
-                        "-v           Verbose\n",
+                printf(
+"usage: %s [options] <input_file>\n"
+"-b           Specify bitcode-format output\n"
+"-c           Compile mode\n"
+"-g           Output a Graphviz .dot file\n"
+"-h           Print this help message\n"
+"-i           Interpret mode\n"
+"-l           Specify human-readable output\n"
+"-o <output>  Specify output filename\n"
+"-q           Quiet (default)\n"
+"-s           Output S-expression description\n"
+"-u <rule>    Set the boxing rule: always, never, or smart\n"
+"-v           Verbose\n",
                         argv[0]);
                 exit(0);
 
@@ -169,7 +176,7 @@ int main(int argc, char **argv) {
                 break;
 
             case 'o':
-                output_filename = optarg;
+                output_filename = strdup(optarg);
                 break;
 
             case 'q':
@@ -178,6 +185,23 @@ int main(int argc, char **argv) {
 
             case 's':
                 format = SINTER;
+                break;
+
+            case 'u':
+                if (!strcmp(optarg, "always")) {
+                    boxing_rules = ALWAYS_BOX;
+
+                } else if (!strcmp(optarg, "never")) {
+                    boxing_rules = NEVER_BOX;
+
+                } else if (!strcmp(optarg, "smart")) {
+                    boxing_rules = SMART_BOX;
+
+                } else {
+                    error(INVALID_ARGUMENTS,
+                            "%s is not a valid option for -u\n", optarg);
+
+                }
                 break;
 
             case 'v':

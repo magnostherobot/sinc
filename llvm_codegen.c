@@ -46,6 +46,8 @@ static LLVMMetadataRef di_cu;
 static LLVMMetadataRef boxed_t_meta;
 static LLVMMetadataRef last_func_m;
 
+static boxing_rule_t boxing_rule;
+
 static scope sc;
 
 void put_builder_at_end(LLVMBuilderRef b, LLVMBasicBlockRef block) {
@@ -63,24 +65,115 @@ LLVMValueRef build_call(LLVMBuilderRef b, LLVMTypeRef t, LLVMValueRef p,
     return call;
 }
 
-LLVMValueRef box_val(LLVMBuilderRef b, LLVMValueRef val, LLVMTypeRef type) {
-    LLVMValueRef size = LLVMSizeOf(type);
-    LLVMValueRef size_cast = LLVMConstIntCast(size, llvm_int_t, 0);
-    LLVMTypeRef ptr_type = LLVMPointerType(type, 0);
+LLVMValueRef smart_box_val(LLVMValueRef f, LLVMBuilderRef b, LLVMValueRef val,
+        LLVMTypeRef type) {
 
-    LLVMValueRef box =
-        build_call(b, gc_alloc_t, gc_alloc_p, &size_cast, 1, "boxed");
-    LLVMValueRef box_cast = LLVMBuildPointerCast(b, box, ptr_type, "box_cast");
-    LLVMBuildStore(b, val, box_cast);
+    LLVMValueRef size = LLVMConstIntCast(LLVMSizeOf(type), llvm_int_t, 0);
+    LLVMTypeRef ptr_t = LLVMPointerType(type, 0);
+    LLVMValueRef ptr_size = LLVMConstIntCast(LLVMSizeOf(ptr_t), llvm_int_t, 0);
 
-    return box;
+    LLVMBasicBlockRef cond_b = LLVMAppendBasicBlock(f, "box_cond");
+    LLVMBasicBlockRef smol_b = LLVMAppendBasicBlock(f, "box_smol");
+    LLVMBasicBlockRef beeg_b = LLVMAppendBasicBlock(f, "box_beeg");
+    LLVMBasicBlockRef done_b = LLVMAppendBasicBlock(f, "box_done");
+
+    LLVMBuildBr(b, cond_b);
+
+    put_builder_at_end(b, cond_b);
+    LLVMValueRef cond = LLVMBuildICmp(b, LLVMIntULE, size, ptr_size, "smol?");
+    LLVMBuildCondBr(b, cond, smol_b, beeg_b);
+
+    put_builder_at_end(b, smol_b);
+    LLVMValueRef cast = LLVMBuildCast(b, LLVMIntToPtr, val, boxed_t, "cast");
+    LLVMBuildBr(b, done_b);
+
+    put_builder_at_end(b, beeg_b);
+    LLVMValueRef box = build_call(b, gc_alloc_t, gc_alloc_p, &size, 1, "boxed");
+    LLVMBuildBr(b, done_b);
+
+    put_builder_at_end(b, done_b);
+    LLVMValueRef phi_vs[] = { cast, box };
+    LLVMBasicBlockRef phi_bs[] = { smol_b, beeg_b };
+    LLVMValueRef res = LLVMBuildPhi(b, boxed_t, "box_res");
+    LLVMAddIncoming(res, phi_vs, phi_bs, 2);
+
+    return res;
 }
 
-LLVMValueRef unbox_val(LLVMBuilderRef b, LLVMValueRef box, LLVMTypeRef type) {
+LLVMValueRef box_val(LLVMValueRef f, LLVMBuilderRef b, LLVMValueRef val,
+        LLVMTypeRef type) {
+
+    LLVMValueRef size = LLVMConstIntCast(LLVMSizeOf(type), llvm_int_t, 0);
+
+    switch (boxing_rule) {
+
+        case ALWAYS_BOX:
+            return build_call(b, gc_alloc_t, gc_alloc_p, &size, 1, "boxed");
+
+        case NEVER_BOX:
+            return LLVMBuildCast(b, LLVMIntToPtr, val, boxed_t, "cast");
+
+        case SMART_BOX:
+            return smart_box_val(f, b, val, type);
+
+    }
+}
+
+LLVMValueRef smart_unbox_val(LLVMValueRef f, LLVMBuilderRef b, LLVMValueRef box,
+        LLVMTypeRef type) {
+
+    LLVMValueRef size = LLVMConstIntCast(LLVMSizeOf(type), llvm_int_t, 0);
     LLVMTypeRef ptr_type = LLVMPointerType(type, 0);
-    LLVMValueRef uncast = LLVMBuildPointerCast(b, box, ptr_type, "uncast");
-    LLVMValueRef val = LLVMBuildLoad2(b, type, uncast, "unboxed");
-    return val;
+    LLVMValueRef ptr_size = LLVMConstIntCast(LLVMSizeOf(ptr_type), llvm_int_t,
+            0);
+
+    LLVMBasicBlockRef cond_b = LLVMAppendBasicBlock(f, "box_cond");
+    LLVMBasicBlockRef smol_b = LLVMAppendBasicBlock(f, "box_smol");
+    LLVMBasicBlockRef beeg_b = LLVMAppendBasicBlock(f, "box_beeg");
+    LLVMBasicBlockRef done_b = LLVMAppendBasicBlock(f, "box_done");
+
+    LLVMBuildBr(b, cond_b);
+
+    put_builder_at_end(b, cond_b);
+    LLVMValueRef cond = LLVMBuildICmp(b, LLVMIntULE, size, ptr_size, "smol?");
+    LLVMBuildCondBr(b, cond, smol_b, beeg_b);
+
+    put_builder_at_end(b, smol_b);
+    LLVMValueRef uncast = LLVMBuildCast(b, LLVMPtrToInt, box, type, "uncast");
+    LLVMBuildBr(b, done_b);
+
+    put_builder_at_end(b, beeg_b);
+    LLVMValueRef box_uncast = LLVMBuildPointerCast(b, box, ptr_type,
+            "box_uncast");
+    LLVMValueRef unbox = LLVMBuildLoad2(b, type, box_uncast, "unboxed");
+    LLVMBuildBr(b, done_b);
+
+    put_builder_at_end(b, done_b);
+    LLVMValueRef phi_vs[] = { uncast, unbox };
+    LLVMBasicBlockRef phi_bs[] = { smol_b, beeg_b };
+    LLVMValueRef res = LLVMBuildPhi(b, type, "box_res");
+    LLVMAddIncoming(res, phi_vs, phi_bs, 2);
+
+    return res;
+}
+
+LLVMValueRef unbox_val(LLVMValueRef f, LLVMBuilderRef b, LLVMValueRef box,
+        LLVMTypeRef type) {
+
+    switch (boxing_rule) {
+
+        case ALWAYS_BOX: {
+            LLVMTypeRef ptr_t = LLVMPointerType(type, 0);
+            LLVMValueRef uncast = LLVMBuildPointerCast(b, box, ptr_t, "uncast");
+            return LLVMBuildLoad2(b, type, uncast, "unboxed");
+
+        } case NEVER_BOX:
+            return LLVMBuildCast(b, LLVMPtrToInt, box, type, "uncast");
+
+        case SMART_BOX:
+            return smart_unbox_val(f, b, box, type);
+
+    }
 }
 
 LLVMValueRef codegen_print_int(LLVMValueRef ref) {
@@ -90,10 +183,10 @@ LLVMValueRef codegen_print_int(LLVMValueRef ref) {
     return ret;
 }
 
-LLVMValueRef codegen_int(sexpr *sexpr) {
+LLVMValueRef codegen_int(LLVMValueRef f, LLVMBuilderRef b, sexpr *sexpr) {
     LLVMValueRef val =
         LLVMConstInt(llvm_int_t, (unsigned) sexpr->contents.i, 0);
-    LLVMValueRef box = box_val(builder, val, llvm_int_t);
+    LLVMValueRef box = box_val(f, b, val, llvm_int_t);
     return box;
 }
 
@@ -646,7 +739,7 @@ void codegen_tmrc_inner(char *outer_id, char **outer_param_ids, LLVMValueRef
     }
 
     LLVMValueRef zero_v = LLVMConstInt(llvm_int_t, 0, 0);
-    LLVMValueRef cond_res = unbox_val(builder, _codegen(cond_ast, 0),
+    LLVMValueRef cond_res = unbox_val(inner_p, builder, _codegen(cond_ast, 0),
             llvm_int_t);
     LLVMValueRef cond_v = LLVMBuildICmp(builder, LLVMIntNE,
             cond_res, zero_v, "neq_0");
@@ -972,7 +1065,8 @@ void codegen_trmc(scope_entry *outer_e, uint outer_param_c, sexpr *body,
     sexpr *cond_ast = cond_node->contents.n.l;
     LLVMValueRef llvm_zero_v = LLVMConstInt(llvm_int_t, 0, 0);
     LLVMValueRef cond_res = _codegen(cond_ast, 0);
-    LLVMValueRef unboxed_cond_res = unbox_val(builder, cond_res, llvm_int_t);
+    LLVMValueRef unboxed_cond_res = unbox_val(function, builder, cond_res,
+            llvm_int_t);
     LLVMValueRef cond_v = LLVMBuildICmp(builder, LLVMIntNE, unboxed_cond_res,
             llvm_zero_v, "neq_0");
     LLVMBuildCondBr(builder, cond_v, then_b, else_b);
@@ -1027,9 +1121,11 @@ void codegen_trmc(scope_entry *outer_e, uint outer_param_c, sexpr *body,
 
     }
 
+    function = then_p;
     if (then_p) codegen_tmrc_inner(outer_id, param_names, then_p, then_p,
             inner_t, else_p, inner_t, body, then_ast);
 
+    function = else_p;
     if (else_p) codegen_tmrc_inner(outer_id, param_names, else_p, then_p,
             inner_t, else_p, inner_t, body, else_ast);
 
@@ -1201,12 +1297,12 @@ LLVMValueRef codegen_definition(sexpr *se) {
 }
 
 /* TODO: maybe make a function? */
-#define codegen_binop(b, x, y, op) do { \
+#define codegen_binop(f, b, x, y, op) do { \
     assert(arg_c == 2); \
-    LLVMValueRef deref_x = unbox_val(b, x, llvm_int_t); \
-    LLVMValueRef deref_y = unbox_val(b, y, llvm_int_t); \
+    LLVMValueRef deref_x = unbox_val(f, b, x, llvm_int_t); \
+    LLVMValueRef deref_y = unbox_val(f, b, y, llvm_int_t); \
     LLVMValueRef op_res = op(b, deref_x, deref_y, "op_res"); \
-    LLVMValueRef res_box = box_val(b, op_res, llvm_int_t); \
+    LLVMValueRef res_box = box_val(f, b, op_res, llvm_int_t); \
     res = res_box; \
 } while (0)
 
@@ -1225,15 +1321,15 @@ LLVMValueRef codegen_inbuilt_functions(sexpr *se, uint arg_c, LLVMValueRef
     LLVMValueRef res = 0;
 
     if (!strcmp(func_id, "+")) {
-        codegen_binop(builder, args_v[0], args_v[1], LLVMBuildAdd);
+        codegen_binop(function, builder, args_v[0], args_v[1], LLVMBuildAdd);
     } else if (!strcmp(func_id, "*")) {
-        codegen_binop(builder, args_v[0], args_v[1], LLVMBuildMul);
+        codegen_binop(function, builder, args_v[0], args_v[1], LLVMBuildMul);
     } else if (!strcmp(func_id, "-")) {
-        codegen_binop(builder, args_v[0], args_v[1], LLVMBuildSub);
+        codegen_binop(function, builder, args_v[0], args_v[1], LLVMBuildSub);
     } else if (!strcmp(func_id, "/")) {
-        codegen_binop(builder, args_v[0], args_v[1], LLVMBuildSDiv);
+        codegen_binop(function, builder, args_v[0], args_v[1], LLVMBuildSDiv);
     } else if (!strcmp(func_id, "%")) {
-        codegen_binop(builder, args_v[0], args_v[1], LLVMBuildSRem);
+        codegen_binop(function, builder, args_v[0], args_v[1], LLVMBuildSRem);
     }
 
     return res;
@@ -1294,7 +1390,8 @@ LLVMValueRef codegen_conditional(sexpr *se, int tail_position) {
 
     LLVMValueRef llvm_zero_v = LLVMConstInt(llvm_int_t, 0, 0);
     LLVMValueRef cond_res = _codegen(cond_ast, 0);
-    LLVMValueRef unboxed_cond_res = unbox_val(builder, cond_res, llvm_int_t);
+    LLVMValueRef unboxed_cond_res = unbox_val(function, builder, cond_res,
+            llvm_int_t);
     LLVMValueRef cond_v = LLVMBuildICmp(builder, LLVMIntNE, unboxed_cond_res,
             llvm_zero_v, "neq_0");
     LLVMBuildCondBr(builder, cond_v, then_b, else_b);
@@ -1351,7 +1448,7 @@ LLVMValueRef _codegen(sexpr *sexpr, int tail_position) {
     switch (sexpr->type) {
         case NIL:
         case INT:
-            return codegen_int(sexpr);
+            return codegen_int(function, builder, sexpr);
         case ID:
             return codegen_id(sexpr->contents.s);
         case BRANCH:
@@ -1412,7 +1509,7 @@ LLVMMetadataRef debug_make_compile_unit(LLVMDIBuilderRef di_builder,
             profile_debug_info);
 }
 
-void llvm_codegen_prologue(char *filename) {
+void llvm_codegen_prologue(char *filename, boxing_rule_t br) {
     sc = 0;
     scope_push_layer(&sc);
 
@@ -1426,6 +1523,8 @@ void llvm_codegen_prologue(char *filename) {
     module = LLVMModuleCreateWithName("main_module");
     set_module_flag_int(module, "Dwarf Version", 0, 4);
     set_module_flag_int(module, "Debug Info Version", 0, 3);
+
+    boxing_rule = br;
 
     LLVMSetTarget(module, target_triple);
     builder = LLVMCreateBuilder();
@@ -1445,7 +1544,7 @@ void llvm_codegen_prologue(char *filename) {
     LLVMTypeRef gc_alloc_params[] = { llvm_int_t };
     gc_alloc_t = LLVMFunctionType(boxed_t, gc_alloc_params, 1, 0);
     gc_alloc_p = add_function(gc_alloc_t, "gc_alloc");
-    scope_add_entry(sc, "gc_alloc", gc_alloc_p, gc_alloc_t);
+
 }
 
 int write_bitcode(LLVMModuleRef mod, char *fn) {
@@ -1501,6 +1600,8 @@ int interpret(LLVMModuleRef module) {
 
 int llvm_codegen_epilogue(char *output_filename, format_t format) {
     // char *error_str = 0;
+
+    // LLVMDumpModule(module);
 
     // LLVMVerifyModule(module, LLVMAbortProcessAction, &error_str);
     // LLVMDisposeMessage(error_str);

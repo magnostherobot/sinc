@@ -32,7 +32,7 @@ typedef struct list {
     if (arity == n) cast_apply_f(n)
 
 void *run_func(void *f, void *v, void *as) {
-    int arity = *((int *) v);
+    int arity = (int) v;
     list *l = (list *) as;
 
     void repeat_n_32(*arg_);
@@ -74,6 +74,6 @@ void *run_func(void *f, void *v, void *as) {
 }
 
 void *inter_assert(void *a, void *b) {
-    assert(*((int *) a));
+    assert(a);
     return b;
 }

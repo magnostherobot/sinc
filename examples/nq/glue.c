@@ -34,8 +34,8 @@ int main(int argc, char **argv) {
         printf("usage: %s n\n", argv[0]);
 
     } else {
-        int n = atoi(argv[1]);
-        int n_solns = *((int *) count_solns(&n));
+        uintptr_t n = atoi(argv[1]);
+        int n_solns = (int) count_solns((void *) n);
         printf("%i solutions found\n", n_solns);
 
     }

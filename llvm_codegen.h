@@ -3,7 +3,13 @@
 
 #include "sinter.h"
 
-void llvm_codegen_prologue(char *filename);
+typedef enum {
+    ALWAYS_BOX,
+    NEVER_BOX,
+    SMART_BOX
+} boxing_rule_t;
+
+void llvm_codegen_prologue(char *filename, boxing_rule_t boxing_rule);
 void llvm_codegen(sexpr *ast);
 int llvm_codegen_epilogue(char *output_filename, format_t format);
 

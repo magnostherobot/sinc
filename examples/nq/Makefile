@@ -9,7 +9,7 @@ LDFLAGS = $(DEBUG) -L$(HOME)/usr/lib
 LDLIBS = -lgc
 
 LLCFLAGS = $(DEBUG) -Werror -Wpedantic -Wall
-SINCFLAGS = -v
+SINCFLAGS = -u always
 
 TRGT = nqueens
 
