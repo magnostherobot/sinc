@@ -1,0 +1,15 @@
+[def not [x]
+    [if x
+        0
+        1]]
+
+[def and [x y]
+    [if x
+        y
+        0]]
+
+[def != [x y]
+    [- x y]]
+
+[def = [x y]
+    [not [!= x y]]]

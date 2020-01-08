@@ -1,0 +1,37 @@
+[type left_  [kind val]]
+[type right_ [kind val]]
+
+[dec inter_assert [a b]]
+
+[def left [val]
+    [left_ 0 val]]
+
+[def right [val]
+    [right_ 1 val]]
+
+[def _left.val [x]
+    [left_.val x]]
+
+[dec is_left [x]]
+
+[def left.val [x]
+    [inter_assert [is_left x] [left_.val x]]]
+
+[def right.val [x]
+    [right_.val x]]
+
+[def is_right [x]
+    [right_.kind x]]
+
+[def is_left [x]
+    [if [is_right x]
+        0
+        1]]
+
+[def Either.>>= [a f]
+    [if [is_right a]
+        [f [right.val a]]
+        a]]
+
+[def Either.return [x]
+    [right x]]

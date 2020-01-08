@@ -1,0 +1,83 @@
+[dec != [x y]]
+[dec and [x y]]
+
+[dec cons [x xs]]
+[dec head [xs]]
+[dec tail [xs]]
+[dec nil []]
+[dec is_nil [xs]]
+[dec flatten [xs]]
+[dec .. [x y]]
+[dec length [xs]]
+[dec map [f xs]]
+[dec foldl [f acc xs]]
+[dec concat [xs ys]]
+
+[dec left.val [x]]
+
+[dec pure [x]]
+[dec empty []]
+[dec return [x]]
+
+[dec !map [c as]]
+[dec !> [c a]]
+[dec closure [f a]]
+
+[def safe [x d qs]
+    [if [is_nil qs]
+        1
+        [and [and [!= x [head qs]]
+                  [!= x [+ [head qs] d]]]
+             [and [!= x [- [head qs] d]]
+                  [safe x [+ d 1] [tail qs]]]]]]
+
+[def guard [v]
+    [if v
+        [pure 0]
+        [empty]]]
+
+[def !. [g f x]
+    [!> g [f x]]]
+
+[def .! [g f x]
+    [g [left.val [!> f x]]]]
+
+[def !.! [g f x]
+    [!> g [!> f x]]]
+
+[def !foldl [c acc xs]
+    [if [is_nil xs]
+        acc
+        [!foldl c [left.val [!> [!> c acc] [head xs]]] [tail xs]]]]
+
+[def !concatMapClosure [c acc x]
+    [concat acc [left.val [!> c x]]]]
+
+[def !concatMap [c xs]
+    [!foldl [!> [closure !concatMapClosure 3] c] [nil] xs]]
+
+[def _!>>= [xs c]
+    [flatten [map left.val [!map c xs]]]]
+
+[def !>>= [xs c]
+    [!concatMap c xs]]
+
+[def gen_1_1_1 [q b _]
+    [return [cons q b]]]
+
+[def gen_1_1 [b q]
+    [!>>= [guard [safe q 1 b]]
+         [!> [!> [closure gen_1_1_1 3] q] b]]]
+
+[def gen_1 [nq b]
+    [!>>= [.. 1 nq]
+         [!> [closure gen_1_1 2] b]]]
+
+[def gen [n nq]
+    [if n
+        [!>>= [gen [- n 1] nq]
+              [!> [closure gen_1 2] nq]]
+        [cons [nil] [nil]]]]
+
+[def count_solns [n]
+    [length [gen n n]]]

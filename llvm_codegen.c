@@ -35,12 +35,6 @@ static LLVMValueRef gc_alloc_p;
 static LLVMTypeRef print_int_t;
 static LLVMValueRef print_int_p;
 
-static LLVMTypeRef debug_func_call_t;
-static LLVMValueRef debug_func_call_p;
-
-static LLVMTypeRef print_str_t;
-static LLVMValueRef print_str_p;
-
 static LLVMTypeRef llvm_int_t;
 static LLVMTypeRef llvm_str_t;
 static LLVMTypeRef boxed_t;
@@ -61,15 +55,21 @@ void put_builder_at_end(LLVMBuilderRef b, LLVMBasicBlockRef block) {
     }
 }
 
+LLVMValueRef build_call(LLVMBuilderRef b, LLVMTypeRef t, LLVMValueRef p,
+        LLVMValueRef *args, uint argc, char *id) {
+
+    LLVMValueRef call = LLVMBuildCall2(b, t, p, args, argc, id);
+    LLVMSetInstructionCallConv(call, LLVMFastCallConv);
+    return call;
+}
+
 LLVMValueRef box_val(LLVMBuilderRef b, LLVMValueRef val, LLVMTypeRef type) {
-    /* FIXME: memory leak */
-    /* LLVMValueRef box = LLVMBuildMalloc(b, type, "box"); */
     LLVMValueRef size = LLVMSizeOf(type);
     LLVMValueRef size_cast = LLVMConstIntCast(size, llvm_int_t, 0);
     LLVMTypeRef ptr_type = LLVMPointerType(type, 0);
 
     LLVMValueRef box =
-        LLVMBuildCall2(b, gc_alloc_t, gc_alloc_p, &size_cast, 1, "boxed");
+        build_call(b, gc_alloc_t, gc_alloc_p, &size_cast, 1, "boxed");
     LLVMValueRef box_cast = LLVMBuildPointerCast(b, box, ptr_type, "box_cast");
     LLVMBuildStore(b, val, box_cast);
 
@@ -86,7 +86,7 @@ LLVMValueRef unbox_val(LLVMBuilderRef b, LLVMValueRef box, LLVMTypeRef type) {
 LLVMValueRef codegen_print_int(LLVMValueRef ref) {
     LLVMValueRef args[] = { ref };
     LLVMValueRef ret =
-        LLVMBuildCall2(builder, print_int_t, print_int_p, args, 1, "");
+        build_call(builder, print_int_t, print_int_p, args, 1, "");
     return ret;
 }
 
@@ -114,6 +114,17 @@ LLVMValueRef codegen_id(char *id) {
     return val;
 }
 
+LLVMTypeRef make_void_function_type(unsigned param_c, LLVMBool vararg) {
+
+    /* FIXME: memory leak */
+    LLVMTypeRef *boxed_params = malloc((sizeof (LLVMTypeRef)) * param_c);
+    for (uint i = 0; i < param_c; i++) {
+        boxed_params[i] = boxed_t;
+    }
+
+    return LLVMFunctionType(LLVMVoidType(), boxed_params, param_c, vararg);
+}
+
 LLVMTypeRef make_function_type(unsigned param_c, LLVMBool vararg) {
 
     /* FIXME: memory leak */
@@ -123,6 +134,12 @@ LLVMTypeRef make_function_type(unsigned param_c, LLVMBool vararg) {
     }
 
     return LLVMFunctionType(boxed_t, boxed_params, param_c, vararg);
+}
+
+LLVMValueRef add_function(LLVMTypeRef func_t, char *func_id) {
+    LLVMValueRef func_p = LLVMAddFunction(module, func_id, func_t);
+    LLVMSetFunctionCallConv(func_p, LLVMFastCallConv);
+    return func_p;
 }
 
 LLVMTypeRef make_struct_type(char *id, uint param_c, LLVMBool packed) {
@@ -138,16 +155,26 @@ LLVMTypeRef make_struct_type(char *id, uint param_c, LLVMBool packed) {
     return struct_t;
 }
 
-LLVMValueRef _codegen(sexpr *sexpr);
+LLVMValueRef _codegen(sexpr *sexpr, int tail_position);
 
 uint get_args_from_list(sexpr *se, LLVMValueRef *args) {
     debug("getting args from list @%p\n", (void *) se);
     if (!se) return 0;
     assert(se->type == BRANCH);
 
-    *args = _codegen(se->contents.n.l);
+    *args = _codegen(se->contents.n.l, 0);
 
     return 1 + get_args_from_list(se->contents.n.r, args + 1);
+}
+
+uint get_args_from_list_except_last(sexpr *se, LLVMValueRef *args) {
+    if (!se) return 0;
+    assert(se->type == BRANCH);
+    if (!se->contents.n.r) return 1;
+
+    *args = _codegen(se->contents.n.l, 0);
+
+    return 1 + get_args_from_list_except_last(se->contents.n.r, args + 1);
 }
 
 int get_type_param(sexpr *param, char **id, LLVMTypeRef *type) {
@@ -206,6 +233,19 @@ uint make_func_params(sexpr *params, char **ids, lloc_t **llocs) {
     return 1 + make_func_params(r, ids + 1, llocs + 1);
 }
 
+int make_filler_name(char *buf, int n, char *struct_id) {
+    return snprintf(buf, n, ".%s.filler", struct_id);
+}
+
+int make_trmc_inner_name(char *buf, int n, char *outer_id, char *mod) {
+    return snprintf(buf, n, ".%s.inner.%s", outer_id, mod);
+}
+
+LLVMValueRef build_gc_alloc(LLVMBuilderRef b, LLVMTypeRef t, char *id) {
+    LLVMValueRef size = LLVMConstIntCast(LLVMSizeOf(t), llvm_int_t, 0);
+    return LLVMBuildCall2(b, gc_alloc_t, gc_alloc_p, &size, 1, id);
+}
+
 LLVMValueRef codegen_type_definition(sexpr *se) {
     assert(se);
     assert(se->type == BRANCH);
@@ -245,23 +285,63 @@ LLVMValueRef codegen_type_definition(sexpr *se) {
     LLVMBuilderRef util_b = LLVMCreateBuilder();
 
     /*
-     * Make a function for constructing an instance of this struct type. Takes
-     * each of the struct's properties as an individual argument.
+     * Create a "filler" function: given a pointer as its last argument, fill in
+     * the space it points to with properties given as the other arguments.
      */
-    LLVMTypeRef ctor_t = make_function_type(prop_c, 0);
-    LLVMValueRef ctor_p = LLVMAddFunction(module, struct_id, ctor_t);
-    LLVMBasicBlockRef ctor_b = LLVMAppendBasicBlock(ctor_p, "entry");
-    put_builder_at_end(util_b, ctor_b);
-    /* FIXME: memory leak */
-    LLVMValueRef src = LLVMBuildMalloc(util_b, struct_t, "src");
+    /* FIXME: magic size */
+    char filler_id[50];
+    make_filler_name(filler_id, 50, struct_id);
+
+    uint filler_param_c = prop_c + 1;
+    LLVMTypeRef filler_t = make_void_function_type(filler_param_c, 0);
+    LLVMValueRef filler_p = add_function(filler_t, filler_id);
+    LLVMBasicBlockRef filler_b = LLVMAppendBasicBlock(filler_p, "entry");
+    put_builder_at_end(util_b, filler_b);
+
+    LLVMValueRef space_cast = LLVMGetParam(filler_p, filler_param_c - 1);
+    LLVMValueRef space = LLVMBuildPointerCast(util_b, space_cast,
+            struct_ptr_t, "space_uncast");
     for (uint i = 0; i < prop_c; i++) {
-        LLVMValueRef prop_pos = LLVMBuildStructGEP(util_b, src, i, "pos");
-        LLVMValueRef param = LLVMGetParam(ctor_p, i);
+        LLVMValueRef prop_pos = LLVMBuildStructGEP(util_b, space, i, "pos");
+        LLVMValueRef param = LLVMGetParam(filler_p, i);
         LLVMBuildStore(util_b, param, prop_pos);
     }
-    LLVMValueRef cast = LLVMBuildPointerCast(util_b, src, boxed_t, "cast");
-    LLVMBuildRet(util_b, cast);
-    scope_add_entry(sc, struct_id, ctor_p, ctor_t);
+    LLVMBuildRetVoid(util_b);
+
+    scope_entry *struct_e = malloc(sizeof(*struct_e));
+    struct_e->type = struct_t;
+    struct_e->id = struct_id;
+    struct_e->value = filler_p;
+
+    /*
+     * Create a wrapper around the filler function for use as a general-purpose
+     * constructor.
+     */
+    char *ctor_id = struct_id;
+    uint ctor_param_c = prop_c;
+    LLVMTypeRef ctor_t = make_function_type(ctor_param_c, 0);
+    LLVMValueRef ctor_p = add_function(ctor_t, ctor_id);
+    LLVMBasicBlockRef ctor_b = LLVMAppendBasicBlock(ctor_p, "entry");
+    put_builder_at_end(util_b, ctor_b);
+
+    LLVMValueRef src = build_gc_alloc(util_b, struct_t, "src");
+    assert(src);
+
+    LLVMValueRef *args = malloc(filler_param_c * sizeof(*args));
+    LLVMGetParams(ctor_p, args);
+    args[filler_param_c - 1] = src;
+    build_call(util_b, filler_t, filler_p, args, filler_param_c, "");
+    free(args);
+
+    LLVMBuildRet(util_b, src);
+
+    scope_entry * ctor_e = scope_add_entry(sc, struct_id, ctor_p, ctor_t);
+    ctor_e->has_filler = 1;
+    /* FIXME: memory leak */
+    ctor_e->filler.id = strdup(filler_id);
+    ctor_e->filler.value = filler_p;
+    ctor_e->filler.type = filler_t;
+    ctor_e->filler.constructs = struct_t;
 
     /*
      * Make functions to retreive each property of the struct.
@@ -274,7 +354,7 @@ LLVMValueRef codegen_type_definition(sexpr *se) {
 
         LLVMTypeRef prop_func_t = make_function_type(1, 0);
         LLVMValueRef prop_func_p =
-            LLVMAddFunction(module, prop_func_id, prop_func_t);
+            add_function(prop_func_t, prop_func_id);
         LLVMBasicBlockRef prop_func_b =
             LLVMAppendBasicBlock(prop_func_p, "entry");
         put_builder_at_end(util_b, prop_func_b);
@@ -314,7 +394,7 @@ LLVMValueRef codegen_declaration(sexpr *se) {
     debug("building function %s\n", func_id);
 
     LLVMTypeRef func_t = make_function_type(param_c, 0);
-    LLVMValueRef func_p = LLVMAddFunction(module, func_id, func_t);
+    LLVMValueRef func_p = add_function(func_t, func_id);
 
     scope_add_entry(sc, func_id, func_p, func_t);
 
@@ -376,6 +456,656 @@ LLVMMetadataRef debug_make_location(LLVMContextRef context, lloc_t *lloc,
     return LLVMDIBuilderCreateDebugLocation(context, lineno, colno, scope, 0);
 }
 
+int looks_inside_final_argument(scope_entry *func_entry) {
+    /*
+     * TODO FIXME
+     * implementing this function will require keeping the AST of a function's
+     * definition in the entry; just look through the function to see if any
+     * access functions or operators are applied to the function's final
+     * argument (this would include checking function calls recursively)
+     */
+    return 0 && func_entry;
+}
+
+sexpr *last_list_item(sexpr *list) {
+    sexpr *last;
+    sexpr *current = list;
+
+    while (current) {
+        last = current;
+        current = current->contents.n.r;
+    }
+
+    return last;
+}
+
+typedef enum {
+    NOT_TAIL_RECURSIVE = 0,
+    TAIL_RECURSIVE,
+    TAIL_RECURSIVE_MOD_CONS
+} tail_recursive_t;
+
+int is_tail_recursive_branch(char *id, sexpr *branch) {
+    if (branch->type != BRANCH) return 0;
+
+    char *outermost_id = branch->contents.n.l->contents.s;
+    scope_entry *outermost_e = scope_find(sc, outermost_id);
+    if (!outermost_e->has_filler) return 0;
+
+    sexpr *last_arg = last_list_item(branch)->contents.n.l;
+    if (last_arg->type != BRANCH) return 0;
+
+    char *last_arg_id = last_arg->contents.n.l->contents.s;
+    return !strcmp(last_arg_id, id);
+}
+
+tail_recursive_t is_tail_recursive(char *id, sexpr *ast) {
+    switch (ast->type) {
+        case ID:
+        case INT:
+            /*
+             * just an ID here means that the function is returning a constant
+             * function pointer
+             *
+             * an int here means the function is returning a constant.
+             */
+            debug("%s is not tail recursive because it returns a literal\n",
+                    id);
+            return NOT_TAIL_RECURSIVE;
+
+        case BRANCH: {
+            char *outermost_id = ast->contents.n.l->contents.s;
+
+            if (!strcmp(id, outermost_id)) {
+                debug("%s is tail recursive\n", id);
+                return TAIL_RECURSIVE;
+            }
+
+            if (strcmp(outermost_id, "if")) {
+                debug("%s is not tail recursive mod cons because it does not "
+                        "immediately branch\n", id);
+                return NOT_TAIL_RECURSIVE;
+            }
+
+            sexpr *cond_node = ast->contents.n.r;
+            sexpr *then_node = cond_node->contents.n.r;
+            if (is_tail_recursive_branch(id, then_node->contents.n.l)) {
+                debug("%s is recursive mod cons on its then branch\n", id);
+                return TAIL_RECURSIVE_MOD_CONS;
+            }
+
+            sexpr *else_node = then_node->contents.n.r;
+            if (is_tail_recursive_branch(id, else_node->contents.n.l)) {
+                debug ("%s is recursive mod cons on its else branch\n", id);
+                return TAIL_RECURSIVE_MOD_CONS;
+            }
+
+            debug("%s is not tail recursive\n", id);
+            return NOT_TAIL_RECURSIVE;
+        }
+
+        case NIL:
+        default:
+            error(GENERAL_ERROR, "checking if %s is tail-recursive mod cons",
+                    id);
+
+    }
+}
+
+sexpr *find_tail_recursive_call(char *id, sexpr *ast) {
+    if (ast->type != BRANCH) {
+        return 0;
+    }
+
+    sexpr *last_arg = last_list_item(ast);
+    if (last_arg->type != BRANCH) {
+        return 0;
+    }
+
+    if (strcmp(last_arg->contents.n.l->contents.n.l->contents.s, id)) {
+        return 0;
+    }
+
+    return last_arg;
+}
+
+void debug_set_builder_location(LLVMBuilderRef b, sexpr *se) {
+
+    LLVMMetadataRef loc =
+        debug_make_location(global_context, &se->lloc, last_func_m);
+
+    /*
+     * LLVM 9 onwards has LLVMSetCurrentDebugLocation2, and this call is
+     * deprecated
+     */
+    LLVMSetCurrentDebugLocation(b, LLVMMetadataAsValue(global_context,
+                loc));
+}
+
+LLVMValueRef codegen_from_scope(char *func_id, LLVMValueRef *args, uint arg_c,
+        int tail_position) {
+
+    scope_entry *entry = scope_find(sc, func_id);
+    if (!entry) return 0;
+
+    LLVMValueRef func_p = entry->value;
+    LLVMTypeRef func_t = entry->type;
+
+    /*
+     * in the case that the function being called is passed in as an argument,
+     * we cast it to the function kind that we're expecting.
+     */
+    if (func_t == boxed_t) {
+        LLVMTypeRef exp_func_t = make_function_type(arg_c, 0);
+        LLVMTypeRef exp_func_ptr_t = LLVMPointerType(exp_func_t, 0);
+        LLVMValueRef casted = LLVMBuildPointerCast(builder, entry->value,
+            exp_func_ptr_t, "func_cast");
+        func_t = exp_func_t;
+        func_p = casted;
+    }
+
+    LLVMValueRef res =
+        build_call(builder, func_t, func_p, args, arg_c, "");
+
+    LLVMSetTailCall(res, tail_position);
+
+    return res;
+}
+
+void codegen_tmrc_inner(char *outer_id, char **outer_param_ids, LLVMValueRef
+        inner_p, LLVMValueRef then_p, LLVMTypeRef then_t, LLVMValueRef else_p,
+        LLVMTypeRef else_t, sexpr *body, sexpr* inner_ast) {
+
+    sexpr *tail_recursive_call_ast = find_tail_recursive_call(outer_id,
+            inner_ast);
+
+    LLVMBasicBlockRef entry_b = LLVMAppendBasicBlock(inner_p, "entry");
+    LLVMBasicBlockRef then_b = LLVMAppendBasicBlock(inner_p, "trmc_then");
+    LLVMBasicBlockRef else_b = LLVMAppendBasicBlock(inner_p, "trmc_else");
+    put_builder_at_end(builder, entry_b);
+
+    sexpr *cond_node = body->contents.n.r;
+    sexpr *cond_ast = cond_node->contents.n.l;
+
+    /* FIXME: magic size */
+    LLVMValueRef next_args[50];
+    uint outer_arg_c =
+        get_args_from_list(tail_recursive_call_ast->contents.n.l->contents.n.r,
+                next_args);
+    uint inner_arg_c = outer_arg_c + 1;
+
+    /*
+     * We need to lift the conditional of the next recursive call up into
+     * this one. To do so, we'll add a new layer to the scope that masks the
+     * function's variables with the values of those variables the next call
+     * down.
+     */
+    scope_push_layer(&sc);
+    for (uint i = 0; i < (inner_arg_c - 1); ++i) {
+        scope_add_entry(sc, outer_param_ids[i], next_args[i], boxed_t);
+    }
+
+    LLVMValueRef zero_v = LLVMConstInt(llvm_int_t, 0, 0);
+    LLVMValueRef cond_res = unbox_val(builder, _codegen(cond_ast, 0),
+            llvm_int_t);
+    LLVMValueRef cond_v = LLVMBuildICmp(builder, LLVMIntNE,
+            cond_res, zero_v, "neq_0");
+    LLVMBuildCondBr(builder, cond_v, then_b, else_b);
+
+    scope_pop_layer(&sc);
+
+    put_builder_at_end(builder, then_b);
+    sexpr *then_node = cond_node->contents.n.r;
+    sexpr *then_ast = then_node->contents.n.l;
+
+    if (is_tail_recursive_branch(outer_id, then_ast)) {
+        scope_entry *cons_e = scope_find(sc,
+                inner_ast->contents.n.l->contents.s);
+        LLVMValueRef next_space = build_gc_alloc(builder,
+                cons_e->filler.constructs, "then_space");
+
+        LLVMValueRef space = LLVMGetLastParam(inner_p);
+        /* FIXME: magic size */
+        LLVMValueRef filler_args[50];
+        uint cons_arg_c =
+            get_args_from_list_except_last(inner_ast->contents.n.r,
+                    filler_args);
+        uint filler_arg_c = cons_arg_c + 1;
+        filler_args[cons_arg_c - 1] = next_space;
+        filler_args[filler_arg_c - 1] = space;
+        /* FIXME: magic size */
+        char filler_id[50];
+        make_filler_name(filler_id, 50, cons_e->id);
+        scope_entry *filler_e = scope_find(sc, filler_id);
+        build_call(builder, filler_e->type, filler_e->value, filler_args,
+                filler_arg_c, "");
+
+        next_args[inner_arg_c - 1] = next_space;
+        LLVMValueRef tail_call = build_call(builder, then_t, then_p,
+                next_args, inner_arg_c, "");
+        LLVMSetTailCall(tail_call, 1);
+
+        LLVMBuildRetVoid(builder);
+
+    } else {
+
+        /*
+         * Codegenning a simple branch requires masking the variables again
+         */
+        scope_push_layer(&sc);
+        for (uint i = 0; i < (inner_arg_c - 1); ++i) {
+            scope_add_entry(sc, outer_param_ids[i], next_args[i], boxed_t);
+        }
+
+        LLVMValueRef res = _codegen(then_ast, 0);
+        scope_pop_layer(&sc);
+
+        LLVMValueRef space = LLVMGetLastParam(inner_p);
+        /* FIXME: magic size */
+        LLVMValueRef filler_args[50];
+        uint cons_arg_c =
+            get_args_from_list_except_last(inner_ast->contents.n.r,
+                    filler_args);
+        uint filler_arg_c = cons_arg_c + 1;
+        filler_args[cons_arg_c - 1] = res;
+        filler_args[filler_arg_c - 1] = space;
+        char *cons_id = inner_ast->contents.n.l->contents.s;
+        scope_entry *cons_e = scope_find(sc, cons_id);
+        build_call(builder, cons_e->filler.type, cons_e->filler.value,
+                filler_args, filler_arg_c, "");
+
+        LLVMBuildRetVoid(builder);
+
+    }
+
+    put_builder_at_end(builder, else_b);
+    sexpr *else_node = then_node->contents.n.r;
+    sexpr *else_ast = else_node->contents.n.l;
+
+    if (is_tail_recursive_branch(outer_id, else_ast)) {
+        scope_entry *cons_e = scope_find(sc,
+                inner_ast->contents.n.l->contents.s);
+        LLVMValueRef next_space = build_gc_alloc(builder,
+                cons_e->filler.constructs, "else_space");
+
+        LLVMValueRef space = LLVMGetLastParam(inner_p);
+        /* FIXME: magic size */
+        LLVMValueRef filler_args[50];
+        uint cons_arg_c =
+            get_args_from_list_except_last(inner_ast->contents.n.r,
+                    filler_args);
+        uint filler_arg_c = cons_arg_c + 1;
+        filler_args[cons_arg_c - 1] = next_space;
+        filler_args[filler_arg_c - 1] = space;
+        /* FIXME: magic size */
+        char filler_id[50];
+        make_filler_name(filler_id, 50, cons_e->filler.id);
+        build_call(builder, cons_e->filler.type, cons_e->filler.value,
+                filler_args, filler_arg_c, "");
+
+        next_args[inner_arg_c - 1] = next_space;
+        LLVMValueRef tail_call = build_call(builder, else_t, else_p,
+                next_args, inner_arg_c, "");
+        LLVMSetTailCall(tail_call, 1);
+
+        LLVMBuildRetVoid(builder);
+
+    } else {
+
+        /*
+         * Codegenning a simple branch requires masking the variables again
+         */
+        scope_push_layer(&sc);
+        for (uint i = 0; i < (inner_arg_c - 1); ++i) {
+            scope_add_entry(sc, outer_param_ids[i], next_args[i], boxed_t);
+        }
+
+        LLVMValueRef res = _codegen(else_ast, 0);
+        scope_pop_layer(&sc);
+
+        LLVMValueRef space = LLVMGetLastParam(inner_p);
+        /* FIXME: magic size */
+        LLVMValueRef filler_args[50];
+        uint cons_arg_c =
+            get_args_from_list_except_last(inner_ast->contents.n.r,
+                    filler_args);
+        uint filler_arg_c = cons_arg_c + 1;
+        filler_args[cons_arg_c - 1] = res;
+        filler_args[filler_arg_c - 1] = space;
+        char *cons_id = inner_ast->contents.n.l->contents.s;
+        scope_entry *cons_e = scope_find(sc, cons_id);
+        /* FIXME: magic size */
+        char filler_id[50];
+        make_filler_name(filler_id, 50, cons_e->filler.id);
+        scope_entry *filler_e = scope_find(sc, filler_id);
+        build_call(builder, filler_e->type, filler_e->value, filler_args,
+                filler_arg_c, "");
+
+        LLVMBuildRetVoid(builder);
+
+   }
+}
+
+void codegen_trmc(scope_entry *outer_e, uint outer_param_c, sexpr *body,
+        char **param_names) {
+
+    /*
+     * making a TRMC function TR requires creating an inner function that is
+     * called by the outer function, and that calls the cons function with a
+     * null final argument so that the final function called is the inner
+     * function itself.
+     *
+     * The inner function is given a pointer to space for it to fill alongside
+     * its usual arguments. It should fill this space, then (as its final
+     * action) tail-call itself recursively with a new space.
+     *
+     * The outer function has to call the cons for the first inner function call
+     * (of which there will always be at least one), but it needs to pass a
+     * dummy value in place of the return value of the inner function since it
+     * hasn't been called yet.
+     *
+     * This can be acheived by building two blocks for the outer function:
+     * 1. Regular code generation, except when the recursive tail-call is
+     *    detected it is replaced by a pointer to empty space.
+     * 2. Call the previously-omitted tail-call, giving it its regular arguments
+     *    plus a pointer to the space it should fill (rather than allocating
+     *    space itself.
+     *
+     * 1 jumps straight into 2; having separate blocks means that 2 can be
+     * generated as soon as the recursive tail-call is found.
+     *
+     * The difficulty is that 1 needs a pointer to space already allocated for
+     * the right size for the result of 2. If the inner function contains a
+     * conditional (which it almost certainly does for managing a base case),
+     * then the size required could be variable. Pushing the conditional up to
+     * the caller function means it can allocate the correct amount of space.
+     *
+     * As an example:
+     *
+     * [def map [f xs]
+     *     [if [is_nil xs]
+     *         [nil]
+     *         [cons [f [head xs]]
+     *             [map f [tail xs]]]]]
+     *
+     * This definition of map is TRMC, and should become the following
+     * pseudocode:
+     *
+     * map(f, xs):
+     *   if (is_nil(xs)):
+     *     p = allocate_space_for(nil)
+     *   else:
+     *     p = allocate_space_for(cons)
+     *   map_inner(f, xs, p)
+     *   return p
+     *
+     * map_inner(f, xs, p):
+     *   if (is_nil(xs)):
+     *     *p = nil()
+     *   else:
+     *     next_xs = tail(xs)
+     *     if (is_nil(next_xs)):
+     *       q = allocate_space(nil)
+     *     else:
+     *       q = allocate_space(cons)
+     *     *p = cons(f(head(xs)), q)
+     *     map_inner(f, next_xs, q)
+     *
+     * This version duplicates the conditional expression, which might slow
+     * things down and also duplicate side effects. How about:
+     *
+     * map(f, xs):
+     *   if (is_nil(xs)):
+     *     p = allocate_space_for(nil)
+     *     map_then(f, xs, p)
+     *   else:
+     *     p = allocate_space_for(cons)
+     *     map_else(f, xs, p)
+     *   return p
+     *
+     * map_then(f, xs, p):
+     *   *p = nil()
+     *
+     * map_else(f, xs, p):
+     *   next_f = f
+     *   next_xs = tail(xs)
+     *   if (is_nil(next_xs)):
+     *     q = allocate_space_for(nil)
+     *     *p = cons(f(head(xs)), q)
+     *     map_then(next_f, next_xs, q)
+     *   else:
+     *     q = allocate_space_for(cons)
+     *     *p = cons(f(head(xs)), q)
+     *     map_else(next_f, next_xs, q)
+     *
+     * [def concat [as bs]
+     *   [if [is_nil as]
+     *     bs
+     *     [cons [head as] [concat [tail as] bs]]]]
+     *
+     * becomes
+     *
+     * concat(as, bs):
+     *   if (is_nil(as)):
+     *     p = bs
+     *   else:
+     *     p = allocate_space_for(cons)
+     *     concat_else(as, bs, p)
+     *   return p
+     *
+     * concat_else(as, bs, p):
+     *   next_as = tail(as)
+     *   next_bs = bs
+     *   if (is_nil(next_as)):
+     *     q = next_bs
+     *     *p = cons(head(as), q)
+     *   else:
+     *     q = allocate_space_for(cons)
+     *     *p = cons(head(as), q)
+     *     concat_else(next_as, next_bs, q)
+     *
+     * This doesn't duplicate side effects, but it would reorder them.
+     *
+     * So in general the pattern is:
+     *
+     * F(args):
+     *   if (cond(args)):
+     *     A(a_args(args))
+     *   else:
+     *     B(b_args(args), F(f_args(args)))
+     *
+     * becomes:
+     *
+     * F(args):
+     *   if (cond(args)):
+     *     p = allocate_space_for(A)
+     *     F_then(args, p)
+     *   else:
+     *     p = allocate_space_for(B)
+     *     F_else(args, p)
+     *   return p
+     *
+     * F_then(args, p):
+     *   *p = A(a_args(args))
+     *
+     * F_else(args, p):
+     *   next_args = f_args(args)
+     *   if (cond(next_args)):
+     *     q = allocate_space_for(A)
+     *     *p = B(b_args(args), q)
+     *     F_then(next_args, p)
+     *   else:
+     *     q = allocate_space_for(B)
+     *     *p = B(b_args(args), q)
+     *     F_else(next_args, p)
+     *
+     * The outer function can be inlined, since it doesn't do too much.
+     */
+
+    /*
+     * Create the functions, by defining their types. The inner functions
+     * shouldn't be visible to the rest of the program, and the outer function
+     * is already defined, so there's no need to ad them to the scope.
+     */
+    LLVMValueRef outer_p = outer_e->value;
+    LLVMTypeRef inner_t = make_void_function_type(outer_param_c + 1, 0);
+
+    char *outer_id = outer_e->id;
+
+    /* FIXME: magic size */
+    char inner_id[50];
+
+    LLVMValueRef then_p = 0;
+    LLVMValueRef else_p = 0;
+
+    /*
+     * Build the outer function. It's already been defined in
+     * codegen_definition, so some of its information is available in its scope
+     * entry.
+     *
+     * The topmost part of the AST should be the conditional.
+     */
+    LLVMBasicBlockRef then_b = LLVMAppendBasicBlock(function, "trmc_then");
+    LLVMBasicBlockRef else_b = LLVMAppendBasicBlock(function, "trmc_else");
+
+    sexpr *cond_node = body->contents.n.r;
+    sexpr *cond_ast = cond_node->contents.n.l;
+    LLVMValueRef llvm_zero_v = LLVMConstInt(llvm_int_t, 0, 0);
+    LLVMValueRef cond_res = _codegen(cond_ast, 0);
+    LLVMValueRef unboxed_cond_res = unbox_val(builder, cond_res, llvm_int_t);
+    LLVMValueRef cond_v = LLVMBuildICmp(builder, LLVMIntNE, unboxed_cond_res,
+            llvm_zero_v, "neq_0");
+    LLVMBuildCondBr(builder, cond_v, then_b, else_b);
+
+    uint inner_param_c = outer_param_c + 1;
+    LLVMValueRef *params = malloc(inner_param_c * sizeof(*params));
+    LLVMGetParams(outer_p, params);
+
+    put_builder_at_end(builder, then_b);
+    sexpr *then_node = cond_node->contents.n.r;
+    sexpr *then_ast = then_node->contents.n.l;
+
+    if (is_tail_recursive_branch(outer_id, then_ast)) {
+        make_trmc_inner_name(inner_id, 50, outer_id, "then");
+        then_p = add_function(inner_t, inner_id);
+
+        scope_entry *then_cons = scope_find(sc,
+                then_ast->contents.n.l->contents.s);
+        LLVMValueRef then_space = build_gc_alloc(builder, then_cons->type,
+                "then_space");
+
+        params[inner_param_c - 1] = then_space;
+        build_call(builder, inner_t, then_p, params, inner_param_c, "");
+        LLVMBuildRet(builder, then_space);
+
+    } else {
+        LLVMValueRef res = _codegen(then_ast, 0);
+        LLVMBuildRet(builder, res);
+
+    }
+
+    put_builder_at_end(builder, else_b);
+    sexpr *else_node = then_node->contents.n.r;
+    sexpr *else_ast = else_node->contents.n.l;
+
+    if (is_tail_recursive_branch(outer_id, else_ast)) {
+        make_trmc_inner_name(inner_id, 50, outer_id, "else");
+        else_p = add_function(inner_t, inner_id);
+
+        scope_entry *else_cons = scope_find(sc,
+                else_ast->contents.n.l->contents.s);
+        LLVMValueRef else_space = build_gc_alloc(builder,
+                else_cons->filler.constructs, "else_space");
+
+        params[inner_param_c - 1] = else_space;
+        build_call(builder, inner_t, else_p, params, inner_param_c, "");
+        LLVMBuildRet(builder, else_space);
+
+    } else {
+        LLVMValueRef res = _codegen(else_ast, 0);
+        LLVMBuildRet(builder, res);
+
+    }
+
+    if (then_p) codegen_tmrc_inner(outer_id, param_names, then_p, then_p,
+            inner_t, else_p, inner_t, body, then_ast);
+
+    if (else_p) codegen_tmrc_inner(outer_id, param_names, else_p, then_p,
+            inner_t, else_p, inner_t, body, else_ast);
+
+    /*
+     * It would be nice if we could consider these TRMC functions similarly to
+     * filler functions, e.g. flatten would be TRMC with concat being its cons.
+     *
+     * An idea is to make an allocator function for all TRMC-optimised
+     * functions, to complement the inner functions (since they're effectively
+     * fillers). Both the outer and inner functions can use this allocator
+     * function (maybe), but the readon for making these allocator functions is
+     * so that external functions that are tail-recursive mod this function can
+     * use it to allocate the correct space.
+     */
+}
+
+scope_entry *find_constructor_base(sexpr *ast) {
+    if (ast->type != BRANCH) return 0;
+
+    char *outermost_id = ast->contents.n.l->contents.s;
+    scope_entry *outermost_e = scope_find(sc, outermost_id);
+    if (!outermost_e) return 0;
+    if (outermost_e->has_filler) return outermost_e;
+
+    return 0;
+}
+
+void codegen_constructor(scope_entry *outer_e, scope_entry *base_e, uint
+        outer_param_c, sexpr *body) {
+
+    LLVMValueRef outer_p = outer_e->value;
+    char *outer_id = outer_e->id;
+
+    /* FIXME: magic size */
+    char filler_id[50];
+    make_filler_name(filler_id, 50, outer_id);
+
+    uint filler_param_c = outer_param_c + 1;
+    LLVMTypeRef filler_t = make_void_function_type(filler_param_c, 0);
+    LLVMValueRef filler_p = add_function(filler_t, filler_id);
+
+    LLVMValueRef space = build_gc_alloc(builder, base_e->filler.constructs,
+            "space");
+    /* FIXME: magic size */
+    LLVMValueRef filler_params[50];
+    LLVMGetParams(outer_p, filler_params);
+    filler_params[filler_param_c - 1] = space;
+    build_call(builder, filler_t, filler_p, filler_params, filler_param_c,
+            "");
+
+    LLVMBuildRet(builder, space);
+
+    LLVMBasicBlockRef filler_entry_b = LLVMAppendBasicBlock(filler_p,
+            "entry");
+    put_builder_at_end(builder, filler_entry_b);
+    function = filler_p;
+
+    LLVMValueRef next_filler_params[50];
+    uint next_filler_param_c = get_args_from_list(body->contents.n.r,
+            next_filler_params) + 1;
+    next_filler_params[next_filler_param_c - 1] = LLVMGetLastParam(filler_p);
+    LLVMValueRef next_filler_p = base_e->filler.value;
+    LLVMTypeRef next_filler_t = base_e->filler.type;
+    build_call(builder, next_filler_t, next_filler_p, next_filler_params,
+            next_filler_param_c, "");
+
+    LLVMBuildRetVoid(builder);
+
+    outer_e->has_filler = 1;
+    /* FIXME: memory leak */
+    outer_e->filler.id = strdup(filler_id);
+    outer_e->filler.value = filler_p;
+    outer_e->filler.type = filler_t;
+    outer_e->filler.constructs = base_e->filler.constructs;
+}
+
 LLVMValueRef codegen_definition(sexpr *se) {
     assert(se);
     assert(se->type == BRANCH);
@@ -404,7 +1134,7 @@ LLVMValueRef codegen_definition(sexpr *se) {
 
     assert(param_c == LLVMCountParamTypes(entry->type));
 
-    LLVMBasicBlockRef func_b = LLVMAppendBasicBlock(func_p, "entry");
+    LLVMBasicBlockRef func_b = LLVMAppendBasicBlock(func_p, "debug");
 
     /* create debug info for function */
     LLVMMetadataRef func_m = debug_make_subprogram(di_builder, di_file, func_id,
@@ -437,13 +1167,6 @@ LLVMValueRef codegen_definition(sexpr *se) {
     LLVMSetCurrentDebugLocation(builder, LLVMMetadataAsValue(global_context,
                 loc));
 
-/*     LLVMValueRef func_name = */
-/*         LLVMBuildGlobalString(builder, func_id, "func_name"); */
-/*     LLVMValueRef f_n_cast = */
-/*         LLVMBuildPointerCast(builder, func_name, boxed_t, "func_name_cast"); */
-/*     LLVMBuildCall2(builder, debug_func_call_t, debug_func_call_p, &f_n_cast, 1, */
-/*         ""); */
-
     function = func_p;
 
     scope_push_layer(&sc);
@@ -452,40 +1175,29 @@ LLVMValueRef codegen_definition(sexpr *se) {
     }
 
     assert(!info->contents.n.r->contents.n.r);
-    LLVMValueRef ret = _codegen(info->contents.n.r->contents.n.l);
-    LLVMBuildRet(builder, ret);
+    sexpr *body = info->contents.n.r->contents.n.l;
+
+    scope_entry *constructor_base = find_constructor_base(body);
+
+    /*
+     * check if this function is tail-recursive mod cons
+     */
+    if (is_tail_recursive(func_id, body) == TAIL_RECURSIVE_MOD_CONS) {
+        codegen_trmc(entry, param_c, body, ids);
+
+    } else if (constructor_base) {
+        codegen_constructor(entry, constructor_base, param_c, body);
+
+    } else {
+        LLVMValueRef ret = _codegen(body, 1);
+        LLVMBuildRet(builder, ret);
+    }
 
     scope_pop_layer(&sc);
 
     debug("built function %s\n", func_id);
 
     return func_p;
-}
-
-LLVMValueRef codegen_from_scope(char *func_id, LLVMValueRef *args, uint arg_c) {
-    scope_entry *entry = scope_find(sc, func_id);
-    if (!entry) return 0;
-
-    LLVMValueRef func_p = entry->value;
-    LLVMTypeRef func_t = entry->type;
-
-    /*
-     * in the case that the function being called is passed in as an argument,
-     * we cast it to the function kind that we're expecting.
-     */
-    if (func_t == boxed_t) {
-        LLVMTypeRef exp_func_t = make_function_type(arg_c, 0);
-        LLVMTypeRef exp_func_ptr_t = LLVMPointerType(exp_func_t, 0);
-        LLVMValueRef casted = LLVMBuildPointerCast(builder, entry->value,
-            exp_func_ptr_t, "func_cast");
-        func_t = exp_func_t;
-        func_p = casted;
-    }
-
-    LLVMValueRef res =
-        LLVMBuildCall2(builder, func_t, func_p, args, arg_c, "");
-
-    return res;
 }
 
 /* TODO: maybe make a function? */
@@ -527,7 +1239,7 @@ LLVMValueRef codegen_inbuilt_functions(sexpr *se, uint arg_c, LLVMValueRef
     return res;
 }
 
-LLVMValueRef codegen_invocation(sexpr *se) {
+LLVMValueRef codegen_invocation(sexpr *se, int tail_position) {
     assert(se);
 
     sexpr *l = se->contents.n.l;
@@ -542,17 +1254,9 @@ LLVMValueRef codegen_invocation(sexpr *se) {
     LLVMValueRef args[50];
     uint arg_c = get_args_from_list(r, args);
 
-    LLVMMetadataRef loc =
-        debug_make_location(global_context, &l->lloc, last_func_m);
+    debug_set_builder_location(builder, l);
 
-    /*
-     * LLVM 9 onwards has LLVMSetCurrentDebugLocation2, and this call is
-     * deprecated
-     */
-    LLVMSetCurrentDebugLocation(builder, LLVMMetadataAsValue(global_context,
-                loc));
-
-    LLVMValueRef res = codegen_from_scope(func_id, args, arg_c);
+    LLVMValueRef res = codegen_from_scope(func_id, args, arg_c, tail_position);
     if (!res) res = codegen_inbuilt_functions(se, arg_c, args);
 
     if (!res) error(UNKNOWN_ID, "unrecognised ID %s", func_id);
@@ -561,7 +1265,7 @@ LLVMValueRef codegen_invocation(sexpr *se) {
     return res;
 }
 
-LLVMValueRef codegen_conditional(sexpr *se) {
+LLVMValueRef codegen_conditional(sexpr *se, int tail_position) {
     assert(se);
     assert(se->type == BRANCH);
 
@@ -589,19 +1293,19 @@ LLVMValueRef codegen_conditional(sexpr *se) {
     LLVMBasicBlockRef done_b = LLVMAppendBasicBlock(function, "done");
 
     LLVMValueRef llvm_zero_v = LLVMConstInt(llvm_int_t, 0, 0);
-    LLVMValueRef cond_res = _codegen(cond_ast);
+    LLVMValueRef cond_res = _codegen(cond_ast, 0);
     LLVMValueRef unboxed_cond_res = unbox_val(builder, cond_res, llvm_int_t);
     LLVMValueRef cond_v = LLVMBuildICmp(builder, LLVMIntNE, unboxed_cond_res,
             llvm_zero_v, "neq_0");
     LLVMBuildCondBr(builder, cond_v, then_b, else_b);
 
     put_builder_at_end(builder, then_b);
-    LLVMValueRef then_v = _codegen(then_ast);
+    LLVMValueRef then_v = _codegen(then_ast, tail_position);
     LLVMBasicBlockRef then_exit_b = builder_block;
     LLVMBuildBr(builder, done_b);
 
     put_builder_at_end(builder, else_b);
-    LLVMValueRef else_v = _codegen(else_ast);
+    LLVMValueRef else_v = _codegen(else_ast, tail_position);
     LLVMBasicBlockRef else_exit_b = builder_block;
     LLVMBuildBr(builder, done_b);
 
@@ -614,7 +1318,7 @@ LLVMValueRef codegen_conditional(sexpr *se) {
     return phi_p;
 }
 
-LLVMValueRef codegen_branch(sexpr *se) {
+LLVMValueRef codegen_branch(sexpr *se, int tail_position) {
 
     assert(se);
 
@@ -631,9 +1335,9 @@ LLVMValueRef codegen_branch(sexpr *se) {
         } else if (!strcmp(l->contents.s, "type")) {
             res = codegen_type_definition(r);
         } else if (!strcmp(l->contents.s, "if")) {
-            res = codegen_conditional(r);
+            res = codegen_conditional(r, tail_position);
         } else {
-            res = codegen_invocation(se);
+            res = codegen_invocation(se, tail_position);
         }
 
     } else {
@@ -643,7 +1347,7 @@ LLVMValueRef codegen_branch(sexpr *se) {
     return res;
 }
 
-LLVMValueRef _codegen(sexpr *sexpr) {
+LLVMValueRef _codegen(sexpr *sexpr, int tail_position) {
     switch (sexpr->type) {
         case NIL:
         case INT:
@@ -651,7 +1355,7 @@ LLVMValueRef _codegen(sexpr *sexpr) {
         case ID:
             return codegen_id(sexpr->contents.s);
         case BRANCH:
-            return codegen_branch(sexpr);
+            return codegen_branch(sexpr, tail_position);
         default:
             printf("erm\n");
             return 0;
@@ -737,26 +1441,10 @@ void llvm_codegen_prologue(char *filename) {
 
     LLVMDisposeMessage(target_triple);
 
-    /* add print_int */
-    print_int_t = make_function_type(1, 0);
-    print_int_p = LLVMAddFunction(module, "debug_int", print_int_t);
-    scope_add_entry(sc, "debug_int", print_int_p, print_int_t);
-
-    /* add print_str */
-    LLVMTypeRef print_str_params[] = { llvm_str_t };
-    print_str_t = LLVMFunctionType(LLVMInt32Type(), print_str_params, 1, 0);
-    print_str_p = LLVMAddFunction(module, "debug_str", print_str_t);
-    scope_add_entry(sc, "debug_str", print_str_p, print_str_t);
-
-    /* add debug_func_call */
-    debug_func_call_t = make_function_type(1, 0);
-    debug_func_call_p =
-        LLVMAddFunction(module, "debug_func_call", debug_func_call_t);
-
     /* add gc_alloc */
     LLVMTypeRef gc_alloc_params[] = { llvm_int_t };
     gc_alloc_t = LLVMFunctionType(boxed_t, gc_alloc_params, 1, 0);
-    gc_alloc_p = LLVMAddFunction(module, "gc_alloc", gc_alloc_t);
+    gc_alloc_p = add_function(gc_alloc_t, "gc_alloc");
     scope_add_entry(sc, "gc_alloc", gc_alloc_p, gc_alloc_t);
 }
 
@@ -838,5 +1526,5 @@ int llvm_codegen_epilogue(char *output_filename, format_t format) {
 }
 
 void llvm_codegen(sexpr *se) {
-    _codegen(se);
+    _codegen(se, 0);
 }

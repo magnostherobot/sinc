@@ -1,22 +1,10 @@
-#include <stddef.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <assert.h>
 
 #include <gc.h>
 
-void *inter_main(void);
-
-void *debug_int(void *i) {
-    int *p = (int *) i;
-    fprintf(stderr, "%d\n", *p);
-    return i;
-}
-
-void *debug_func_call(void *f) {
-    char *func_id = (char *) f;
-    fprintf(stderr, "%s\n", func_id);
-    return 0;
-}
+void *count_solns(void *n);
 
 void *gc_alloc(int size) {
     void *p = GC_MALLOC(size);
@@ -30,10 +18,11 @@ void *gc_alloc(int size) {
      * More info in gc.h of Boehm garbage collector.
      */
 
+    assert(p);
     return p;
 }
 
-int main() {
+int main(int argc, char **argv) {
 
     /*
      * Initialising the GC is not necessary on all systems but may be required
@@ -41,8 +30,15 @@ int main() {
      */
     GC_INIT();
 
-    int *ret = (int *) inter_main();
+    if (argc != 2) {
+        printf("usage: %s n\n", argv[0]);
 
-    assert(ret);
-    return *ret;
+    } else {
+        int n = atoi(argv[1]);
+        int n_solns = *((int *) count_solns(&n));
+        printf("%i solutions found\n", n_solns);
+
+    }
+
+    return 0;
 }

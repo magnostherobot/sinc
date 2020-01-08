@@ -1,0 +1,94 @@
+[type list_ [kind head tail]]
+[type nil_ [kind]]
+
+[dec = [x y]]
+
+[dec !> [c a]]
+
+[def cons [head tail]
+    [list_ 0 head tail]]
+
+[def nil []
+    [nil_ 1]]
+
+[def head [xs]
+    [list_.head xs]]
+
+[def tail [xs]
+    [list_.tail xs]]
+
+[def has_tail [xs]
+    [nil_.kind xs]]
+
+[def is_nil [xs]
+    [if [nil_.kind xs]
+        1
+        0]]
+
+[def _length [xs n]
+    [if [is_nil xs]
+        n
+        [_length [tail xs] [+ n 1]]]]
+
+[def length [xs]
+    [_length xs 0]]
+
+[def concat [as bs]
+    [if [is_nil as]
+        bs
+        [cons [head as] [concat [tail as] bs]]]]
+
+[def alt_concat [as bs]
+    [cons [head as]
+          [if [is_nil [tail as]]
+              bs
+              [concat [tail as] bs]]]]
+
+[def foldr [f acc xs]
+    [if [is_nil xs]
+        acc
+        [f [head xs] [foldr f acc [tail xs]]]]]
+
+[def foldl [f acc xs]
+    [if [is_nil xs]
+        acc
+        [foldl f [f acc [head xs]] [tail xs]]]]
+
+[def . [g f x]
+    [g [f x]]]
+
+[def flatten [xs]
+    [if [is_nil xs]
+        [nil]
+        [concat [head xs] [flatten [tail xs]]]]]
+
+[def .. [x y]
+    [if [= x y]
+        [cons x [nil]]
+        [cons x [.. [+ x 1] y]]]]
+
+[def append [xs x]
+    [if [is_nil xs]
+        [cons x [nil]]
+        [cons [head xs] [append [tail xs] x]]]]
+
+[def map [f xs]
+    [if [is_nil xs]
+        [nil]
+        [cons [f [head xs]]
+              [map f [tail xs]]]]]
+
+[def pure [x]
+    [cons x [nil]]]
+
+[def empty []
+    [nil]]
+
+[def return [x]
+    [cons x [nil]]]
+
+[def !map [c xs]
+    [if [is_nil xs]
+        xs
+        [cons [!> c [head xs]]
+              [!map c [tail xs]]]]]

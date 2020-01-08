@@ -1,0 +1,47 @@
+[type closure_ [func arity arg_c args]]
+
+[dec = [x y]]
+
+[dec left [x]]
+[dec right [x]]
+[dec is_right [x]]
+[dec right.val [x]]
+
+[dec run_func [f a as]]
+
+[dec cons [x xs]]
+[dec append [xs x]]
+[dec nil []]
+[dec head [xs]]
+[dec tail [xs]]
+[dec is_nil [xs]]
+
+[def add_arg [c a]
+    [closure_ [closure_.func c]
+          [closure_.arity c]
+          [+ [closure_.arg_c c] 1]
+          [append [closure_.args c] a]]]
+
+[def run_closure [h]
+    [run_func [closure_.func h] [closure_.arity h] [closure_.args h]]]
+
+[def maybe_run_closure [h]
+    [if [= [closure_.arity h] [closure_.arg_c h]]
+        [left [run_func [closure_.func h] [closure_.arity h] [closure_.args h]]]
+        [right h]]]
+
+[def closure [f v]
+    [if v
+        [right [closure_ f v 0 [nil]]]
+        [left [run_func f 0 [nil]]]]]
+
+[def !> [c a]
+    [if [is_right c]
+        [maybe_run_closure [add_arg [right.val c] a]]
+        c]]
+
+[def !>> [c as]
+    [if [is_nil as]
+        c
+        [!>> [!> c [head as]]
+           [tail as]]]]

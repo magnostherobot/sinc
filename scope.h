@@ -8,6 +8,15 @@ typedef struct scope_entry {
     LLVMValueRef value;
     LLVMTypeRef type;
     LLVMMetadataRef metadata;
+
+    int has_filler;
+    struct {
+        char *id;
+        LLVMValueRef value;
+        LLVMTypeRef type;
+        LLVMTypeRef constructs;
+    } filler;
+
     struct scope_entry *prev;
 } scope_entry;
 
@@ -21,7 +30,9 @@ typedef scope_layer *scope;
 void scope_push_layer(scope *sc);
 void scope_pop_layer(scope *sc);
 
-void scope_add_entry(scope sc, char *id, LLVMValueRef val, LLVMTypeRef type);
+scope_entry *scope_add_entry(scope sc, char *id, LLVMValueRef val,
+        LLVMTypeRef type);
+
 scope_entry *scope_find(scope sc, char *id);
 
 #endif /* SCOPE_H */

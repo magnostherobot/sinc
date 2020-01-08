@@ -41,7 +41,9 @@ void scope_pop_layer(scope *sc) {
     *sc = new_sc;
 }
 
-void scope_add_entry(scope sc, char *id, LLVMValueRef val, LLVMTypeRef type) {
+scope_entry *scope_add_entry(scope sc, char *id, LLVMValueRef val,
+        LLVMTypeRef type) {
+
     scope_entry *new_entry = malloc(sizeof (*new_entry));
     if (!new_entry) error(GENERAL_ERROR, "cannot malloc?");
 
@@ -54,6 +56,8 @@ void scope_add_entry(scope sc, char *id, LLVMValueRef val, LLVMTypeRef type) {
     scope_layer *layer = sc;
     new_entry->prev = layer->head;
     layer->head = new_entry;
+
+    return new_entry;
 }
 
 scope_entry *scope_find(scope sc, char *id) {
