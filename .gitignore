@@ -1,7 +1,4 @@
-# exclude extension-less files
-*
-!/**/
-!*.*
+sinc
 
 *.o
 *.bc
@@ -9,5 +6,6 @@
 lex.c
 parse.c
 parse.h
+*.tab.c
 
 *.sw*

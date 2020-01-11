@@ -8,7 +8,7 @@ LDFLAGS = $(DEBUG) -L$(HOME)/usr/lib
 LDLIBS = -lgc
 
 LLCFLAGS = -O0
-SINCFLAGS = -u never -w 32
+SINCFLAGS = -u never -w 32 -O tail-recursive-mod-cons
 
 TRGT = nqueens
 

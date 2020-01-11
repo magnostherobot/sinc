@@ -29,8 +29,6 @@ static LLVMContextRef global_context;
 
 static LLVMBasicBlockRef builder_block;
 
-static uint default_bit_width;
-
 static LLVMTypeRef gc_alloc_t;
 static LLVMValueRef gc_alloc_p;
 
@@ -47,7 +45,7 @@ static LLVMMetadataRef di_cu;
 static LLVMMetadataRef boxed_t_meta;
 static LLVMMetadataRef last_func_m;
 
-static boxing_rule_t boxing_rule;
+static optimisation_t *opts;
 
 static scope sc;
 
@@ -109,7 +107,7 @@ LLVMValueRef box_val(LLVMValueRef f, LLVMBuilderRef b, LLVMValueRef val,
     LLVMValueRef size = LLVMSizeOf(type);
     LLVMTypeRef ptr_t = LLVMPointerType(type, 0);
 
-    switch (boxing_rule) {
+    switch (opts->boxing_rule) {
 
         case ALWAYS_BOX: {
             LLVMValueRef box = build_call(b, gc_alloc_t, gc_alloc_p, &size, 1,
@@ -124,6 +122,9 @@ LLVMValueRef box_val(LLVMValueRef f, LLVMBuilderRef b, LLVMValueRef val,
 
         case SMART_BOX:
             return smart_box_val(f, b, val, type);
+
+        default:
+            error(GENERAL_ERROR, "generating unboxing code");
 
     }
 }
@@ -173,7 +174,7 @@ LLVMValueRef smart_unbox_val(LLVMValueRef f, LLVMBuilderRef b, LLVMValueRef box,
 LLVMValueRef unbox_val(LLVMValueRef f, LLVMBuilderRef b, LLVMValueRef box,
         LLVMTypeRef type) {
 
-    switch (boxing_rule) {
+    switch (opts->boxing_rule) {
 
         case ALWAYS_BOX: {
             LLVMTypeRef ptr_t = LLVMPointerType(type, 0);
@@ -197,9 +198,9 @@ LLVMValueRef codegen_print_int(LLVMValueRef ref) {
 }
 
 LLVMValueRef codegen_default_int(LLVMValueRef f, LLVMBuilderRef b, uint i) {
-    if (!default_bit_width) error(GENERAL_ERROR, "no bitwidth specified");
+    if (!opts->default_bit_width) error(GENERAL_ERROR, "no bitwidth specified");
 
-    LLVMTypeRef int_t = LLVMIntType(default_bit_width);
+    LLVMTypeRef int_t = LLVMIntType(opts->default_bit_width);
     LLVMValueRef val = LLVMConstInt(int_t, i, 0);
     LLVMValueRef box = box_val(f, b, val, int_t);
     return box;
@@ -732,7 +733,7 @@ void codegen_trmc_inner(char *outer_id, char **outer_param_ids, LLVMValueRef
     sexpr *else_node = then_node->contents.n.r;
     sexpr *else_ast = else_node->contents.n.l;
 
-    uint bit_width = default_bit_width;
+    uint bit_width = opts->default_bit_width;
     sexpr *bit_width_node = else_node->contents.n.r;
     if (bit_width_node) bit_width = bit_width_node->contents.n.l->contents.i;
     if (!bit_width) error(GENERAL_ERROR, "no bitwidth specified");
@@ -1084,7 +1085,7 @@ void codegen_trmc(scope_entry *outer_e, uint outer_param_c, sexpr *body,
     sexpr *else_node = then_node->contents.n.r;
     sexpr *else_ast = else_node->contents.n.l;
 
-    uint bit_width = default_bit_width;
+    uint bit_width = opts->default_bit_width;
     sexpr *bit_width_node = else_node->contents.n.r;
     if (bit_width_node) bit_width = bit_width_node->contents.n.l->contents.i;
     if (!bit_width) error(GENERAL_ERROR, "no bitwidth specified");
@@ -1226,6 +1227,10 @@ void codegen_constructor(scope_entry *outer_e, scope_entry *base_e, uint
     outer_e->filler.constructs = base_e->filler.constructs;
 }
 
+LLVMValueRef codegen_basic_function(sexpr *body, int tail_position) {
+    return LLVMBuildRet(builder, _codegen(body, tail_position));
+}
+
 LLVMValueRef codegen_definition(sexpr *se) {
     assert(se);
     assert(se->type == BRANCH);
@@ -1299,18 +1304,20 @@ LLVMValueRef codegen_definition(sexpr *se) {
 
     scope_entry *constructor_base = find_constructor_base(body);
 
-    /*
-     * check if this function is tail-recursive mod cons
-     */
-    if (is_tail_recursive(func_id, body) == TAIL_RECURSIVE_MOD_CONS) {
-        codegen_trmc(entry, param_c, body, ids);
+    if (opts->tail_recursive_mod_cons) {
 
-    } else if (constructor_base) {
-        codegen_constructor(entry, constructor_base, param_c, body);
+        if (is_tail_recursive(func_id, body) == TAIL_RECURSIVE_MOD_CONS) {
+            codegen_trmc(entry, param_c, body, ids);
+
+        } else if (constructor_base) {
+            codegen_constructor(entry, constructor_base, param_c, body);
+
+        } else {
+            codegen_basic_function(body, 1);
+        }
 
     } else {
-        LLVMValueRef ret = _codegen(body, 1);
-        LLVMBuildRet(builder, ret);
+        codegen_basic_function(body, 1);
     }
 
     scope_pop_layer(&sc);
@@ -1366,7 +1373,7 @@ LLVMValueRef codegen_conditional(sexpr *se, int tail_position) {
     sexpr *else_ast = se->contents.n.l;
     assert(else_ast);
 
-    uint bit_width = default_bit_width;
+    uint bit_width = opts->default_bit_width;
     se = se->contents.n.r;
     if (se) bit_width = se->contents.n.l->contents.i;
     if (!bit_width) error(GENERAL_ERROR, "no bitwidth specified");
@@ -1450,7 +1457,7 @@ LLVMValueRef _codegen(sexpr *sexpr, int tail_position) {
     }
 }
 
-void set_module_flag_int(LLVMModuleRef module, char *flag, int n, int val) {
+void set_module_flag_int(LLVMModuleRef module, char *flag, size_t n, int val) {
     n = n ? n : strlen(flag);
 
     LLVMTypeRef flag_val_t = LLVMInt32Type();
@@ -1500,7 +1507,7 @@ LLVMMetadataRef debug_make_compile_unit(LLVMDIBuilderRef di_builder,
             profile_debug_info);
 }
 
-void llvm_codegen_prologue(char *filename, boxing_rule_t br, uint dbw) {
+void llvm_codegen_prologue(char *filename, optimisation_t *llvm_info) {
     sc = 0;
     scope_push_layer(&sc);
 
@@ -1514,8 +1521,7 @@ void llvm_codegen_prologue(char *filename, boxing_rule_t br, uint dbw) {
     set_module_flag_int(module, "Dwarf Version", 0, 4);
     set_module_flag_int(module, "Debug Info Version", 0, 3);
 
-    boxing_rule = br;
-    default_bit_width = dbw;
+    opts = llvm_info;
 
     LLVMSetTarget(module, target_triple);
     builder = LLVMCreateBuilder();

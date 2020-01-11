@@ -3,6 +3,7 @@
 #include <assert.h>
 #include <string.h>
 #include <unistd.h>
+#include <stdbool.h>
 
 #include "sinc.h"
 #include "sexpr.h"
@@ -64,14 +65,14 @@ sexpr *new_node(sexpr *l, sexpr *r, lloc_t lloc) {
     return new_sexpr(BRANCH, c, lloc);
 }
 
-void prologue(boxing_rule_t br, uint dbw) {
+void prologue(optimisation_t *llvm_info) {
 
     switch (format) {
 
         case LLVM_INTERMEDIATE:
         case BITCODE:
         case INTERPRET:
-            llvm_codegen_prologue(input_filename, br, dbw);
+            llvm_codegen_prologue(input_filename, llvm_info);
             break;
 
         case GRAPHVIZ:
@@ -133,13 +134,17 @@ int main(int argc, char **argv) {
     output_filename = 0;
     format = LLVM_INTERMEDIATE;
 
-    boxing_rule_t boxing_rules = ALWAYS_BOX;
-    uint default_bit_width = 0;
+    optimisation_t llvm_info = {
+        .boxing_rule = ALWAYS_BOX,
+        .default_bit_width = 0,
+        .tail_recursive_mod_cons = false
+    };
+
     verbose = 0;
 
     debug("\n");
 
-    while ((c = getopt(argc, argv, "bghilo:qsu:vw:")) != -1) {
+    while ((c = getopt(argc, argv, "bghilo:O:qsu:vw:")) != -1) {
         switch (c) {
             case 'b':
                 format = BITCODE;
@@ -159,6 +164,7 @@ int main(int argc, char **argv) {
 "-i           Interpret mode\n"
 "-l           Specify human-readable output\n"
 "-o <output>  Specify output filename\n"
+"-O <opt>     Enable compiler optimisation\n"
 "-q           Quiet (default)\n"
 "-s           Output S-expression description\n"
 "-u <rule>    Set the boxing rule: always, never, or smart\n"
@@ -179,6 +185,18 @@ int main(int argc, char **argv) {
                 output_filename = strdup(optarg);
                 break;
 
+            case 'O':
+                if (!strcmp(optarg, "tail-recursive-mod-cons")) {
+                    llvm_info.tail_recursive_mod_cons = 1;
+
+                } else {
+                    error(INVALID_ARGUMENTS,
+                            "%s is not a recognised optimisation name\n",
+                            optarg);
+
+                }
+                break;
+
             case 'q':
                 verbose = 0;
                 break;
@@ -189,13 +207,13 @@ int main(int argc, char **argv) {
 
             case 'u':
                 if (!strcmp(optarg, "always")) {
-                    boxing_rules = ALWAYS_BOX;
+                    llvm_info.boxing_rule = ALWAYS_BOX;
 
                 } else if (!strcmp(optarg, "never")) {
-                    boxing_rules = NEVER_BOX;
+                    llvm_info.boxing_rule = NEVER_BOX;
 
                 } else if (!strcmp(optarg, "smart")) {
-                    boxing_rules = SMART_BOX;
+                    llvm_info.boxing_rule = SMART_BOX;
 
                 } else {
                     error(INVALID_ARGUMENTS,
@@ -209,12 +227,13 @@ int main(int argc, char **argv) {
                 break;
 
             case 'w':
-                default_bit_width = atoi(optarg);
+                llvm_info.default_bit_width = atoi(optarg);
                 break;
 
             case '?':
                 switch (optopt) {
                     case 'o':
+                    case 'O':
                         error(INVALID_ARGUMENTS,
                                 "-%c option requires an argument", optopt);
                         break;
@@ -236,7 +255,7 @@ int main(int argc, char **argv) {
         yyin = fopen(input_filename, "r");
     }
 
-    prologue(boxing_rules, default_bit_width);
+    prologue(&llvm_info);
     yyparse();
     epilogue(output_filename, format);
     return 0;

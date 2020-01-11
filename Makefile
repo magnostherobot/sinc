@@ -8,7 +8,7 @@ INSTALL = install -c
 DEBUG = -ggdb3 -DGC_DEBUG
 RELEASE = -O2 -DNDEBUG
 
-CFLAGS = --std=c99 -Wpedantic -Wall -Wextra -Werror $(RELEASE)
+CFLAGS = --std=c99 -Wpedantic -Wall -Wextra -Werror $(DEBUG)
 LFLAGS = -D_POSIX_C_SOURCE=200809L
 
 LLVM_MODULES = core executionengine mcjit interpreter analysis native bitwriter
