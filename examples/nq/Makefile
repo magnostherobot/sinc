@@ -1,6 +1,5 @@
 CC = clang
 CXX = clang++
-SINC = ../../sinter
 
 DEBUG = -g -O0
 

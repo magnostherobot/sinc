@@ -3,24 +3,33 @@ CXX = clang++
 YACC = bison
 LEX = flex
 
-DEBUG = -ggdb3 -O0 -DGC_DEBUG
+INSTALL = install -c
+
+DEBUG = -ggdb3 -DGC_DEBUG
 RELEASE = -O2 -DNDEBUG
 
-CFLAGS = --std=c99 -Wpedantic -Wall -Wextra -Werror $(DEBUG)
+CFLAGS = --std=c99 -Wpedantic -Wall -Wextra -Werror $(RELEASE)
 LFLAGS = -D_POSIX_C_SOURCE=200809L
 
 LLVM_MODULES = core executionengine mcjit interpreter analysis native bitwriter
 
-CFLAGS   += $(shell llvm-config --cflags) -I$(HOME)/usr/include
+CFLAGS   += $(shell llvm-config --cflags)
 CXXFLAGS += $(shell llvm-config --cppflags)
-LDFLAGS  += $(shell llvm-config --ldflags) -L$(HOME)/usr/lib
-LDLIBS   += $(shell llvm-config --libs $(LLVM_MODULES) --system-libs) -lgc
+LDFLAGS  += $(shell llvm-config --ldflags)
+LDLIBS   += $(shell llvm-config --libs $(LLVM_MODULES) --system-libs)
 
-.PHONY: default all clean test
+.PHONY: default all clean test install uninstall
 
 default: all
 
-all: sinter common.o
+all: sinter
+
+install: all
+	$(INSTALL) -d $(PREFIX)/bin/
+	$(INSTALL) sinter $(PREFIX)/bin/
+
+uninstall:
+	$(RM) $(PREFIX)/bin/sinter
 
 sinter.o: sinter.h parse.h debug.h error.h scope.h llvm_codegen.h \
 	graphviz_codegen.h

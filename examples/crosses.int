@@ -1,8 +1,0 @@
-[dec loop [c]]
-[dec create_window [c x y w h]]
-[dec init_sdl []]
-
-[def on_click [x y] [debug_int [+ x y]]]
-
-[def inter_main []
-    [loop [create_window [init_sdl] 10 10 100 100]]]

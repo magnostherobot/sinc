@@ -1,10 +1,13 @@
+# exclude extension-less files
+*
+!/**/
+!*.*
+
 *.o
 *.bc
 
 lex.c
 parse.c
 parse.h
-
-sinter
 
 *.sw*
