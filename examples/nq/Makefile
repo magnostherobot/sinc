@@ -7,7 +7,7 @@ CFLAGS = $(DEBUG) -Werror -Wpedantic -Wall -I$(HOME)/usr/include
 LDFLAGS = $(DEBUG) -L$(HOME)/usr/lib
 LDLIBS = -lgc
 
-LLCFLAGS = $(DEBUG) -Werror -Wpedantic -Wall
+LLCFLAGS = -O0
 SINCFLAGS = -u never -w 32
 
 TRGT = nqueens

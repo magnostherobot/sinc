@@ -2,7 +2,7 @@
 #include <stdlib.h>
 
 #include "graphviz_codegen.h"
-#include "sinter.h"
+#include "sinc.h"
 #include "parse.h"
 #include "error.h"
 

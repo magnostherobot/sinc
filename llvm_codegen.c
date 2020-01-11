@@ -12,7 +12,7 @@
 #include <llvm-c/DebugInfo.h>
 
 #include "llvm_codegen.h"
-#include "sinter.h"
+#include "sinc.h"
 #include "scope.h"
 #include "debug.h"
 #include "parse.h"

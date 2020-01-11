@@ -4,7 +4,7 @@
 #include <string.h>
 #include <unistd.h>
 
-#include "sinter.h"
+#include "sinc.h"
 #include "sexpr.h"
 #include "llvm_codegen.h"
 #include "sinter_codegen.h"

@@ -1,7 +1,7 @@
 #ifndef LLVM_CODEGEN_H
 #define LLVM_CODEGEN_H
 
-#include "sinter.h"
+#include "sinc.h"
 
 typedef enum {
     ALWAYS_BOX,

@@ -1,7 +1,7 @@
 #ifndef GRAPHVIZ_CODEGEN_H
 #define GRAPHVIZ_CODEGEN_H
 
-#include "sinter.h"
+#include "sinc.h"
 
 void graphviz_codegen_prologue();
 void graphviz_codegen(sexpr *ast);

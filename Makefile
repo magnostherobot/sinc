@@ -22,26 +22,26 @@ LDLIBS   += $(shell llvm-config --libs $(LLVM_MODULES) --system-libs)
 
 default: all
 
-all: sinter
+all: sinc
 
 install: all
 	$(INSTALL) -d $(PREFIX)/bin/
-	$(INSTALL) sinter $(PREFIX)/bin/
+	$(INSTALL) sinc $(PREFIX)/bin/
 
 uninstall:
-	$(RM) $(PREFIX)/bin/sinter
+	$(RM) $(PREFIX)/bin/sinc
 
-sinter.o: sinter.h parse.h debug.h error.h scope.h llvm_codegen.h \
+sinc.o: sinc.h parse.h debug.h error.h scope.h llvm_codegen.h \
 	graphviz_codegen.h
-llvm_codegen.o: llvm_codegen.h sinter.h scope.h debug.h parse.h error.h
+llvm_codegen.o: llvm_codegen.h sinc.h scope.h debug.h parse.h error.h
 sinter_codegen.o: sinter_codegen.h parse.h
 graphviz_codegen.o: graphviz_codegen.h parse.h error.h
-parse.o:  sinter.h
-lex.o:    sinter.h parse.h
+parse.o:  sinc.h
+lex.o:    sinc.h parse.h
 scope.o:  scope.h error.h debug.h
 common.o: debug.h
 
-sinter: sinter.o parse.o lex.o scope.o llvm_codegen.o sinter_codegen.o \
+sinc: sinc.o parse.o lex.o scope.o llvm_codegen.o sinter_codegen.o \
 	graphviz_codegen.o
 	$(LINK.cc) $(OUTPUT_OPTION) $^ $(LDLIBS)
 
@@ -61,4 +61,4 @@ lex.o: lex.c
 	$(YACC) -o $@ $<
 
 clean:
-	$(RM) sinter *.tab.* *.o lex.c parse.c parse.h
+	$(RM) sinc *.tab.* *.o lex.c parse.c parse.h

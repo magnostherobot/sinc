@@ -8,7 +8,7 @@
 #include <string.h>
 
 #include "sexpr.h"
-#include "sinter.h"
+#include "sinc.h"
 #include "parse.h"
 
 void yyerror(const char *s, ...);

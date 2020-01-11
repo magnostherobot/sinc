@@ -7,7 +7,7 @@
 #include <stdlib.h>
 
 #include "sexpr.h"
-#include "sinter.h"
+#include "sinc.h"
 
 extern int yylineno;
 int yylex(void);

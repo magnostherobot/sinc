@@ -1,7 +1,7 @@
 #ifndef SINTER_CODEGEN_H
 #define SINTER_CODEGEN_H
 
-#include "sinter.h"
+#include "sinc.h"
 
 void sinter_codegen_prologue();
 void sinter_codegen(sexpr *ast);

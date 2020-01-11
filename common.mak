@@ -1,8 +1,8 @@
-LLC  ?= clang
-SINC ?= sinter
+LLC  ?= llc
+SINC ?= sinc
 
 %.o: %.ll
-	$(LLC) -c $(LLCFLAGS) -o $@ $<
+	$(LLC) -filetype obj $(LLCFLAGS) -o $@ $<
 
 %.ll: %.sin
 	$(SINC) -l $(SINCFLAGS) -o $@ $<
