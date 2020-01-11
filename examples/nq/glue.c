@@ -1,12 +1,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <stdint.h>
 
 #include <gc.h>
 
-void *count_solns(void *n);
+int count_solns(int n);
 
-void *gc_alloc(int size) {
+void *gc_alloc(size_t size) {
     void *p = GC_MALLOC(size);
 
     /*
@@ -34,8 +35,8 @@ int main(int argc, char **argv) {
         printf("usage: %s n\n", argv[0]);
 
     } else {
-        uintptr_t n = atoi(argv[1]);
-        int n_solns = (int) count_solns((void *) n);
+        int n = atoi(argv[1]);
+        int n_solns = count_solns(n);
         printf("%i solutions found\n", n_solns);
 
     }

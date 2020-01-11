@@ -17,7 +17,7 @@ typedef struct sexpr {
     union contents {
         double f;
         char *s;
-        int i;
+        unsigned i;
         struct node {
             struct sexpr *l;
             struct sexpr *r;

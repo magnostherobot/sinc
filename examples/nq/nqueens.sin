@@ -23,6 +23,11 @@
 [dec !> [c a]]
 [dec closure [f a]]
 
+[dec count_solns [n]]
+
+[dec + [x y]]
+[dec - [x y]]
+
 [def safe [x d qs]
     [if [is_nil qs]
         1
@@ -78,6 +83,3 @@
         [!>>= [gen [- n 1] nq]
               [!> [closure gen_1 2] nq]]
         [cons [nil] [nil]]]]
-
-[def count_solns [n]
-    [length [gen n n]]]

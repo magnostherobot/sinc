@@ -29,13 +29,14 @@ static LLVMContextRef global_context;
 
 static LLVMBasicBlockRef builder_block;
 
+static uint default_bit_width;
+
 static LLVMTypeRef gc_alloc_t;
 static LLVMValueRef gc_alloc_p;
 
 static LLVMTypeRef print_int_t;
 static LLVMValueRef print_int_p;
 
-static LLVMTypeRef llvm_int_t;
 static LLVMTypeRef llvm_str_t;
 static LLVMTypeRef boxed_t;
 
@@ -68,9 +69,9 @@ LLVMValueRef build_call(LLVMBuilderRef b, LLVMTypeRef t, LLVMValueRef p,
 LLVMValueRef smart_box_val(LLVMValueRef f, LLVMBuilderRef b, LLVMValueRef val,
         LLVMTypeRef type) {
 
-    LLVMValueRef size = LLVMConstIntCast(LLVMSizeOf(type), llvm_int_t, 0);
+    LLVMValueRef size = LLVMSizeOf(type);
     LLVMTypeRef ptr_t = LLVMPointerType(type, 0);
-    LLVMValueRef ptr_size = LLVMConstIntCast(LLVMSizeOf(ptr_t), llvm_int_t, 0);
+    LLVMValueRef ptr_size = LLVMSizeOf(ptr_t);
 
     LLVMBasicBlockRef cond_b = LLVMAppendBasicBlock(f, "box_cond");
     LLVMBasicBlockRef smol_b = LLVMAppendBasicBlock(f, "box_smol");
@@ -89,6 +90,8 @@ LLVMValueRef smart_box_val(LLVMValueRef f, LLVMBuilderRef b, LLVMValueRef val,
 
     put_builder_at_end(b, beeg_b);
     LLVMValueRef box = build_call(b, gc_alloc_t, gc_alloc_p, &size, 1, "boxed");
+    LLVMValueRef box_cast = LLVMBuildPointerCast(b, box, ptr_t, "box_uncast");
+    LLVMBuildStore(b, val, box_cast);
     LLVMBuildBr(b, done_b);
 
     put_builder_at_end(b, done_b);
@@ -103,14 +106,20 @@ LLVMValueRef smart_box_val(LLVMValueRef f, LLVMBuilderRef b, LLVMValueRef val,
 LLVMValueRef box_val(LLVMValueRef f, LLVMBuilderRef b, LLVMValueRef val,
         LLVMTypeRef type) {
 
-    LLVMValueRef size = LLVMConstIntCast(LLVMSizeOf(type), llvm_int_t, 0);
+    LLVMValueRef size = LLVMSizeOf(type);
+    LLVMTypeRef ptr_t = LLVMPointerType(type, 0);
 
     switch (boxing_rule) {
 
-        case ALWAYS_BOX:
-            return build_call(b, gc_alloc_t, gc_alloc_p, &size, 1, "boxed");
+        case ALWAYS_BOX: {
+            LLVMValueRef box = build_call(b, gc_alloc_t, gc_alloc_p, &size, 1,
+                    "boxed");
+            LLVMValueRef cast = LLVMBuildPointerCast(b, box, ptr_t,
+                    "box_uncast");
+            LLVMBuildStore(b, val, cast);
+            return box;
 
-        case NEVER_BOX:
+        } case NEVER_BOX:
             return LLVMBuildCast(b, LLVMIntToPtr, val, boxed_t, "cast");
 
         case SMART_BOX:
@@ -119,13 +128,17 @@ LLVMValueRef box_val(LLVMValueRef f, LLVMBuilderRef b, LLVMValueRef val,
     }
 }
 
+LLVMValueRef build_gc_alloc(LLVMBuilderRef b, LLVMTypeRef t, char *id) {
+    LLVMValueRef size = LLVMSizeOf(t);
+    return LLVMBuildCall2(b, gc_alloc_t, gc_alloc_p, &size, 1, id);
+}
+
 LLVMValueRef smart_unbox_val(LLVMValueRef f, LLVMBuilderRef b, LLVMValueRef box,
         LLVMTypeRef type) {
 
-    LLVMValueRef size = LLVMConstIntCast(LLVMSizeOf(type), llvm_int_t, 0);
+    LLVMValueRef size = LLVMSizeOf(type);
     LLVMTypeRef ptr_type = LLVMPointerType(type, 0);
-    LLVMValueRef ptr_size = LLVMConstIntCast(LLVMSizeOf(ptr_type), llvm_int_t,
-            0);
+    LLVMValueRef ptr_size = LLVMSizeOf(ptr_type);
 
     LLVMBasicBlockRef cond_b = LLVMAppendBasicBlock(f, "box_cond");
     LLVMBasicBlockRef smol_b = LLVMAppendBasicBlock(f, "box_smol");
@@ -183,11 +196,27 @@ LLVMValueRef codegen_print_int(LLVMValueRef ref) {
     return ret;
 }
 
-LLVMValueRef codegen_int(LLVMValueRef f, LLVMBuilderRef b, sexpr *sexpr) {
-    LLVMValueRef val =
-        LLVMConstInt(llvm_int_t, (unsigned) sexpr->contents.i, 0);
-    LLVMValueRef box = box_val(f, b, val, llvm_int_t);
+LLVMValueRef codegen_default_int(LLVMValueRef f, LLVMBuilderRef b, uint i) {
+    if (!default_bit_width) error(GENERAL_ERROR, "no bitwidth specified");
+
+    LLVMTypeRef int_t = LLVMIntType(default_bit_width);
+    LLVMValueRef val = LLVMConstInt(int_t, i, 0);
+    LLVMValueRef box = box_val(f, b, val, int_t);
     return box;
+}
+
+LLVMValueRef codegen_int(LLVMValueRef f, LLVMBuilderRef b, sexpr *se) {
+
+    uint bit_width = se->contents.n.l->contents.i;
+
+    /*
+     * could use strtoull to support huge constants
+     */
+    unsigned long long value = se->contents.n.r->contents.i;
+
+    LLVMTypeRef int_t = LLVMIntType(bit_width);
+    LLVMValueRef val = LLVMConstInt(int_t, value, 0);
+    return box_val(f, b, val, int_t);
 }
 
 LLVMValueRef codegen_id(char *id) {
@@ -270,35 +299,6 @@ uint get_args_from_list_except_last(sexpr *se, LLVMValueRef *args) {
     return 1 + get_args_from_list_except_last(se->contents.n.r, args + 1);
 }
 
-int get_type_param(sexpr *param, char **id, LLVMTypeRef *type) {
-    assert(param);
-    assert(param->type == BRANCH);
-
-    sexpr *type_se = param->contents.n.l;
-    sexpr *id_se = param->contents.n.r;
-
-    *id = id_se->contents.s;
-
-    char *type_str = type_se->contents.s;
-    if (!strcmp(type_str, "INT")) {
-        *type = llvm_int_t;
-    } else if (!strcmp(type_str, "STR")) {
-        *type = llvm_str_t;
-    } else {
-
-        /*
-         * FIXME
-         * For now, if we don't recognise the type identifier, we assume it's a
-         * user-defined type (aka a boxed value)
-         */
-        *type = boxed_t;
-    }
-
-    debug("type element %s with type %s\n", *id, type_str);
-
-    return 0;
-}
-
 uint make_type_params(sexpr *params, char **ids) {
     if (!params) return 0;
 
@@ -332,11 +332,6 @@ int make_filler_name(char *buf, int n, char *struct_id) {
 
 int make_trmc_inner_name(char *buf, int n, char *outer_id, char *mod) {
     return snprintf(buf, n, ".%s.inner.%s", outer_id, mod);
-}
-
-LLVMValueRef build_gc_alloc(LLVMBuilderRef b, LLVMTypeRef t, char *id) {
-    LLVMValueRef size = LLVMConstIntCast(LLVMSizeOf(t), llvm_int_t, 0);
-    return LLVMBuildCall2(b, gc_alloc_t, gc_alloc_p, &size, 1, id);
 }
 
 LLVMValueRef codegen_type_definition(sexpr *se) {
@@ -417,7 +412,7 @@ LLVMValueRef codegen_type_definition(sexpr *se) {
     LLVMBasicBlockRef ctor_b = LLVMAppendBasicBlock(ctor_p, "entry");
     put_builder_at_end(util_b, ctor_b);
 
-    LLVMValueRef src = build_gc_alloc(util_b, struct_t, "src");
+    LLVMValueRef src = build_gc_alloc(util_b, struct_t, struct_id);
     assert(src);
 
     LLVMValueRef *args = malloc(filler_param_c * sizeof(*args));
@@ -580,6 +575,7 @@ typedef enum {
 
 int is_tail_recursive_branch(char *id, sexpr *branch) {
     if (branch->type != BRANCH) return 0;
+    if (branch->contents.n.l->type == INT) return 0;
 
     char *outermost_id = branch->contents.n.l->contents.s;
     scope_entry *outermost_e = scope_find(sc, outermost_id);
@@ -594,19 +590,29 @@ int is_tail_recursive_branch(char *id, sexpr *branch) {
 
 tail_recursive_t is_tail_recursive(char *id, sexpr *ast) {
     switch (ast->type) {
-        case ID:
+
         case INT:
+        case ID:
             /*
              * just an ID here means that the function is returning a constant
              * function pointer
              *
-             * an int here means the function is returning a constant.
+             * an int here means the function is returning a constant
              */
             debug("%s is not tail recursive because it returns a literal\n",
                     id);
             return NOT_TAIL_RECURSIVE;
 
         case BRANCH: {
+            if (ast->contents.n.l->type == INT) {
+                /*
+                 * an int here means the function is returning a constant
+                 */
+                debug("%s is not tail recursive because it returns a literal\n",
+                        id);
+                return NOT_TAIL_RECURSIVE;
+            }
+
             char *outermost_id = ast->contents.n.l->contents.s;
 
             if (!strcmp(id, outermost_id)) {
@@ -705,7 +711,7 @@ LLVMValueRef codegen_from_scope(char *func_id, LLVMValueRef *args, uint arg_c,
     return res;
 }
 
-void codegen_tmrc_inner(char *outer_id, char **outer_param_ids, LLVMValueRef
+void codegen_trmc_inner(char *outer_id, char **outer_param_ids, LLVMValueRef
         inner_p, LLVMValueRef then_p, LLVMTypeRef then_t, LLVMValueRef else_p,
         LLVMTypeRef else_t, sexpr *body, sexpr* inner_ast) {
 
@@ -719,6 +725,18 @@ void codegen_tmrc_inner(char *outer_id, char **outer_param_ids, LLVMValueRef
 
     sexpr *cond_node = body->contents.n.r;
     sexpr *cond_ast = cond_node->contents.n.l;
+
+    sexpr *then_node = cond_node->contents.n.r;
+    sexpr *then_ast = then_node->contents.n.l;
+
+    sexpr *else_node = then_node->contents.n.r;
+    sexpr *else_ast = else_node->contents.n.l;
+
+    uint bit_width = default_bit_width;
+    sexpr *bit_width_node = else_node->contents.n.r;
+    if (bit_width_node) bit_width = bit_width_node->contents.n.l->contents.i;
+    if (!bit_width) error(GENERAL_ERROR, "no bitwidth specified");
+    LLVMTypeRef int_t = LLVMIntType(bit_width);
 
     /* FIXME: magic size */
     LLVMValueRef next_args[50];
@@ -738,18 +756,16 @@ void codegen_tmrc_inner(char *outer_id, char **outer_param_ids, LLVMValueRef
         scope_add_entry(sc, outer_param_ids[i], next_args[i], boxed_t);
     }
 
-    LLVMValueRef zero_v = LLVMConstInt(llvm_int_t, 0, 0);
-    LLVMValueRef cond_res = unbox_val(inner_p, builder, _codegen(cond_ast, 0),
-            llvm_int_t);
-    LLVMValueRef cond_v = LLVMBuildICmp(builder, LLVMIntNE,
-            cond_res, zero_v, "neq_0");
+    LLVMValueRef cond_contents = _codegen(cond_ast, 0);
+    LLVMValueRef cond_res = unbox_val(inner_p, builder, cond_contents, int_t);
+    LLVMValueRef zero_v = LLVMConstInt(int_t, 0, 0);
+    LLVMValueRef cond_v = LLVMBuildICmp(builder, LLVMIntNE, cond_res, zero_v,
+            "neq_0");
     LLVMBuildCondBr(builder, cond_v, then_b, else_b);
 
     scope_pop_layer(&sc);
 
     put_builder_at_end(builder, then_b);
-    sexpr *then_node = cond_node->contents.n.r;
-    sexpr *then_ast = then_node->contents.n.l;
 
     if (is_tail_recursive_branch(outer_id, then_ast)) {
         scope_entry *cons_e = scope_find(sc,
@@ -812,8 +828,6 @@ void codegen_tmrc_inner(char *outer_id, char **outer_param_ids, LLVMValueRef
     }
 
     put_builder_at_end(builder, else_b);
-    sexpr *else_node = then_node->contents.n.r;
-    sexpr *else_ast = else_node->contents.n.l;
 
     if (is_tail_recursive_branch(outer_id, else_ast)) {
         scope_entry *cons_e = scope_find(sc,
@@ -1063,12 +1077,25 @@ void codegen_trmc(scope_entry *outer_e, uint outer_param_c, sexpr *body,
 
     sexpr *cond_node = body->contents.n.r;
     sexpr *cond_ast = cond_node->contents.n.l;
-    LLVMValueRef llvm_zero_v = LLVMConstInt(llvm_int_t, 0, 0);
+
+    sexpr *then_node = cond_node->contents.n.r;
+    sexpr *then_ast = then_node->contents.n.l;
+
+    sexpr *else_node = then_node->contents.n.r;
+    sexpr *else_ast = else_node->contents.n.l;
+
+    uint bit_width = default_bit_width;
+    sexpr *bit_width_node = else_node->contents.n.r;
+    if (bit_width_node) bit_width = bit_width_node->contents.n.l->contents.i;
+    if (!bit_width) error(GENERAL_ERROR, "no bitwidth specified");
+    LLVMTypeRef int_t = LLVMIntType(bit_width);
+
+    LLVMValueRef zero_v = LLVMConstInt(int_t, 0, 0);
     LLVMValueRef cond_res = _codegen(cond_ast, 0);
     LLVMValueRef unboxed_cond_res = unbox_val(function, builder, cond_res,
-            llvm_int_t);
+            int_t);
     LLVMValueRef cond_v = LLVMBuildICmp(builder, LLVMIntNE, unboxed_cond_res,
-            llvm_zero_v, "neq_0");
+            zero_v, "neq_0");
     LLVMBuildCondBr(builder, cond_v, then_b, else_b);
 
     uint inner_param_c = outer_param_c + 1;
@@ -1076,8 +1103,6 @@ void codegen_trmc(scope_entry *outer_e, uint outer_param_c, sexpr *body,
     LLVMGetParams(outer_p, params);
 
     put_builder_at_end(builder, then_b);
-    sexpr *then_node = cond_node->contents.n.r;
-    sexpr *then_ast = then_node->contents.n.l;
 
     if (is_tail_recursive_branch(outer_id, then_ast)) {
         make_trmc_inner_name(inner_id, 50, outer_id, "then");
@@ -1099,8 +1124,6 @@ void codegen_trmc(scope_entry *outer_e, uint outer_param_c, sexpr *body,
     }
 
     put_builder_at_end(builder, else_b);
-    sexpr *else_node = then_node->contents.n.r;
-    sexpr *else_ast = else_node->contents.n.l;
 
     if (is_tail_recursive_branch(outer_id, else_ast)) {
         make_trmc_inner_name(inner_id, 50, outer_id, "else");
@@ -1122,11 +1145,11 @@ void codegen_trmc(scope_entry *outer_e, uint outer_param_c, sexpr *body,
     }
 
     function = then_p;
-    if (then_p) codegen_tmrc_inner(outer_id, param_names, then_p, then_p,
+    if (then_p) codegen_trmc_inner(outer_id, param_names, then_p, then_p,
             inner_t, else_p, inner_t, body, then_ast);
 
     function = else_p;
-    if (else_p) codegen_tmrc_inner(outer_id, param_names, else_p, then_p,
+    if (else_p) codegen_trmc_inner(outer_id, param_names, else_p, then_p,
             inner_t, else_p, inner_t, body, else_ast);
 
     /*
@@ -1144,6 +1167,7 @@ void codegen_trmc(scope_entry *outer_e, uint outer_param_c, sexpr *body,
 
 scope_entry *find_constructor_base(sexpr *ast) {
     if (ast->type != BRANCH) return 0;
+    if (ast->contents.n.l->type != ID) return 0;
 
     char *outermost_id = ast->contents.n.l->contents.s;
     scope_entry *outermost_e = scope_find(sc, outermost_id);
@@ -1296,45 +1320,6 @@ LLVMValueRef codegen_definition(sexpr *se) {
     return func_p;
 }
 
-/* TODO: maybe make a function? */
-#define codegen_binop(f, b, x, y, op) do { \
-    assert(arg_c == 2); \
-    LLVMValueRef deref_x = unbox_val(f, b, x, llvm_int_t); \
-    LLVMValueRef deref_y = unbox_val(f, b, y, llvm_int_t); \
-    LLVMValueRef op_res = op(b, deref_x, deref_y, "op_res"); \
-    LLVMValueRef res_box = box_val(f, b, op_res, llvm_int_t); \
-    res = res_box; \
-} while (0)
-
-LLVMValueRef codegen_inbuilt_functions(sexpr *se, uint arg_c, LLVMValueRef
-        *args_v) {
-
-    assert(se);
-
-    sexpr *l = se->contents.n.l;
-    /* sexpr *r = se->contents.n.r; */
-
-    assert(l->type == ID);
-
-    char *func_id = l->contents.s;
-
-    LLVMValueRef res = 0;
-
-    if (!strcmp(func_id, "+")) {
-        codegen_binop(function, builder, args_v[0], args_v[1], LLVMBuildAdd);
-    } else if (!strcmp(func_id, "*")) {
-        codegen_binop(function, builder, args_v[0], args_v[1], LLVMBuildMul);
-    } else if (!strcmp(func_id, "-")) {
-        codegen_binop(function, builder, args_v[0], args_v[1], LLVMBuildSub);
-    } else if (!strcmp(func_id, "/")) {
-        codegen_binop(function, builder, args_v[0], args_v[1], LLVMBuildSDiv);
-    } else if (!strcmp(func_id, "%")) {
-        codegen_binop(function, builder, args_v[0], args_v[1], LLVMBuildSRem);
-    }
-
-    return res;
-}
-
 LLVMValueRef codegen_invocation(sexpr *se, int tail_position) {
     assert(se);
 
@@ -1353,7 +1338,6 @@ LLVMValueRef codegen_invocation(sexpr *se, int tail_position) {
     debug_set_builder_location(builder, l);
 
     LLVMValueRef res = codegen_from_scope(func_id, args, arg_c, tail_position);
-    if (!res) res = codegen_inbuilt_functions(se, arg_c, args);
 
     if (!res) error(UNKNOWN_ID, "unrecognised ID %s", func_id);
 
@@ -1382,18 +1366,22 @@ LLVMValueRef codegen_conditional(sexpr *se, int tail_position) {
     sexpr *else_ast = se->contents.n.l;
     assert(else_ast);
 
-    assert(!se->contents.n.r);
+    uint bit_width = default_bit_width;
+    se = se->contents.n.r;
+    if (se) bit_width = se->contents.n.l->contents.i;
+    if (!bit_width) error(GENERAL_ERROR, "no bitwidth specified");
 
     LLVMBasicBlockRef then_b = LLVMAppendBasicBlock(function, "then");
     LLVMBasicBlockRef else_b = LLVMAppendBasicBlock(function, "else");
     LLVMBasicBlockRef done_b = LLVMAppendBasicBlock(function, "done");
 
-    LLVMValueRef llvm_zero_v = LLVMConstInt(llvm_int_t, 0, 0);
     LLVMValueRef cond_res = _codegen(cond_ast, 0);
+    LLVMTypeRef int_t = LLVMIntType(bit_width);
     LLVMValueRef unboxed_cond_res = unbox_val(function, builder, cond_res,
-            llvm_int_t);
+            int_t);
+    LLVMValueRef zero = LLVMConstInt(int_t, 0, 0);
     LLVMValueRef cond_v = LLVMBuildICmp(builder, LLVMIntNE, unboxed_cond_res,
-            llvm_zero_v, "neq_0");
+            zero, "neq_0");
     LLVMBuildCondBr(builder, cond_v, then_b, else_b);
 
     put_builder_at_end(builder, then_b);
@@ -1437,6 +1425,9 @@ LLVMValueRef codegen_branch(sexpr *se, int tail_position) {
             res = codegen_invocation(se, tail_position);
         }
 
+    } else if (l->type == INT) {
+        res = codegen_int(function, builder, se);
+
     } else {
         error(SYNTAX_ERROR, "don't know what to do with above AST");
     }
@@ -1446,13 +1437,13 @@ LLVMValueRef codegen_branch(sexpr *se, int tail_position) {
 
 LLVMValueRef _codegen(sexpr *sexpr, int tail_position) {
     switch (sexpr->type) {
-        case NIL:
         case INT:
-            return codegen_int(function, builder, sexpr);
+            return codegen_default_int(function, builder, sexpr->contents.i);
         case ID:
             return codegen_id(sexpr->contents.s);
         case BRANCH:
             return codegen_branch(sexpr, tail_position);
+        case NIL:
         default:
             printf("erm\n");
             return 0;
@@ -1509,11 +1500,10 @@ LLVMMetadataRef debug_make_compile_unit(LLVMDIBuilderRef di_builder,
             profile_debug_info);
 }
 
-void llvm_codegen_prologue(char *filename, boxing_rule_t br) {
+void llvm_codegen_prologue(char *filename, boxing_rule_t br, uint dbw) {
     sc = 0;
     scope_push_layer(&sc);
 
-    llvm_int_t = LLVMInt32Type();
     llvm_str_t = LLVMPointerType(LLVMInt8Type(), 0);
     boxed_t = LLVMPointerType(LLVMInt8Type(), 0);
 
@@ -1525,6 +1515,7 @@ void llvm_codegen_prologue(char *filename, boxing_rule_t br) {
     set_module_flag_int(module, "Debug Info Version", 0, 3);
 
     boxing_rule = br;
+    default_bit_width = dbw;
 
     LLVMSetTarget(module, target_triple);
     builder = LLVMCreateBuilder();
@@ -1540,8 +1531,14 @@ void llvm_codegen_prologue(char *filename, boxing_rule_t br) {
 
     LLVMDisposeMessage(target_triple);
 
+    /*
+     * Get the size of an arbitrary value to find out what type LLVM uses to
+     * report sizes.
+     */
+    LLVMTypeRef llvm_size_t = LLVMTypeOf(LLVMSizeOf(LLVMIntType(1)));
+
     /* add gc_alloc */
-    LLVMTypeRef gc_alloc_params[] = { llvm_int_t };
+    LLVMTypeRef gc_alloc_params[] = { llvm_size_t };
     gc_alloc_t = LLVMFunctionType(boxed_t, gc_alloc_params, 1, 0);
     gc_alloc_p = add_function(gc_alloc_t, "gc_alloc");
 

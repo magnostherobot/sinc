@@ -2,8 +2,12 @@
 [type nil_ [kind]]
 
 [dec = [x y]]
+[dec + [x y]]
+[dec - [x y]]
 
 [dec !> [c a]]
+
+[dec inc [x]]
 
 [def cons [head tail]
     [list_ 0 head tail]]
@@ -28,7 +32,7 @@
 [def _length [xs n]
     [if [is_nil xs]
         n
-        [_length [tail xs] [+ n 1]]]]
+        [_length [tail xs] [inc n]]]]
 
 [def length [xs]
     [_length xs 0]]

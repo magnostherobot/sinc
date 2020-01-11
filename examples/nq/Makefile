@@ -2,16 +2,19 @@ CC = clang
 CXX = clang++
 SINC = ../../sinter
 
-DEBUG = -g -O3
+DEBUG = -g -O0
 
 CFLAGS = $(DEBUG) -Werror -Wpedantic -Wall -I$(HOME)/usr/include
 LDFLAGS = $(DEBUG) -L$(HOME)/usr/lib
 LDLIBS = -lgc
 
 LLCFLAGS = $(DEBUG) -Werror -Wpedantic -Wall
-SINCFLAGS = -u always
+SINCFLAGS = -u never -w 32
 
 TRGT = nqueens
+
+SINS = $(wildcard *.sin)
+LLEXT = $(SINS:.sin=.ll)
 
 include ../../common.mak
 
@@ -21,7 +24,7 @@ default: all
 
 all: $(TRGT)
 
-$(TRGT): nqueens.o util.o either.o list.o closures.o run_func.o glue.o
+$(TRGT): nqueens.o util.o either.o list.o closures.o run_func.o glue.o gglue.o
 
 clean:
-	$(RM) *.ll *.dot *.svg *.o $(TRGT)
+	$(RM) $(LLEXT) *.dot *.svg *.o $(TRGT)

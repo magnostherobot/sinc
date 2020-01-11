@@ -19,8 +19,6 @@ static char *input_filename;
 static char *output_filename;
 static format_t format;
 
-static boxing_rule_t boxing_rules;
-
 extern FILE *yyin;
 int yyparse(void);
 
@@ -66,14 +64,14 @@ sexpr *new_node(sexpr *l, sexpr *r, lloc_t lloc) {
     return new_sexpr(BRANCH, c, lloc);
 }
 
-void prologue() {
+void prologue(boxing_rule_t br, uint dbw) {
 
     switch (format) {
 
         case LLVM_INTERMEDIATE:
         case BITCODE:
         case INTERPRET:
-            llvm_codegen_prologue(input_filename, boxing_rules);
+            llvm_codegen_prologue(input_filename, br, dbw);
             break;
 
         case GRAPHVIZ:
@@ -135,12 +133,13 @@ int main(int argc, char **argv) {
     output_filename = 0;
     format = LLVM_INTERMEDIATE;
 
-    boxing_rules = ALWAYS_BOX;
+    boxing_rule_t boxing_rules = ALWAYS_BOX;
+    uint default_bit_width = 0;
     verbose = 0;
 
     debug("\n");
 
-    while ((c = getopt(argc, argv, "bghilo:qsu:v")) != -1) {
+    while ((c = getopt(argc, argv, "bghilo:qsu:vw:")) != -1) {
         switch (c) {
             case 'b':
                 format = BITCODE;
@@ -163,7 +162,8 @@ int main(int argc, char **argv) {
 "-q           Quiet (default)\n"
 "-s           Output S-expression description\n"
 "-u <rule>    Set the boxing rule: always, never, or smart\n"
-"-v           Verbose\n",
+"-v           Verbose\n"
+"-w <width>   Specify default width of integers in bits\n",
                         argv[0]);
                 exit(0);
 
@@ -208,6 +208,10 @@ int main(int argc, char **argv) {
                 verbose = 1;
                 break;
 
+            case 'w':
+                default_bit_width = atoi(optarg);
+                break;
+
             case '?':
                 switch (optopt) {
                     case 'o':
@@ -232,7 +236,7 @@ int main(int argc, char **argv) {
         yyin = fopen(input_filename, "r");
     }
 
-    prologue();
+    prologue(boxing_rules, default_bit_width);
     yyparse();
     epilogue(output_filename, format);
     return 0;

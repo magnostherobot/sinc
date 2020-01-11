@@ -75,5 +75,6 @@ void *run_func(void *f, void *v, void *as) {
 
 void *inter_assert(void *a, void *b) {
     assert(a);
+    /* assert(*((int *) a)); */
     return b;
 }

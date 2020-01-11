@@ -16,10 +16,12 @@
 [dec tail [xs]]
 [dec is_nil [xs]]
 
+[dec inc [x]]
+
 [def add_arg [c a]
     [closure_ [closure_.func c]
           [closure_.arity c]
-          [+ [closure_.arg_c c] 1]
+          [inc [closure_.arg_c c]]
           [append [closure_.args c] a]]]
 
 [def run_closure [h]
