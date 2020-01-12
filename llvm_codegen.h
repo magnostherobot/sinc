@@ -15,6 +15,7 @@ typedef struct {
     boxing_rule_t boxing_rule;
     uint default_bit_width;
     bool tail_recursive_mod_cons;
+    bool llvm_attributes;
 } optimisation_t;
 
 void llvm_codegen_prologue(char *filename, optimisation_t *optimisations);

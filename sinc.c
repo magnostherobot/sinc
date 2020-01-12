@@ -137,7 +137,8 @@ int main(int argc, char **argv) {
     optimisation_t llvm_info = {
         .boxing_rule = ALWAYS_BOX,
         .default_bit_width = 0,
-        .tail_recursive_mod_cons = false
+        .tail_recursive_mod_cons = true,
+        .llvm_attributes = true
     };
 
     verbose = 0;
@@ -187,7 +188,16 @@ int main(int argc, char **argv) {
 
             case 'O':
                 if (!strcmp(optarg, "tail-recursive-mod-cons")) {
-                    llvm_info.tail_recursive_mod_cons = 1;
+                    llvm_info.tail_recursive_mod_cons = true;
+
+                } else if (!strcmp(optarg, "no-tail-recursive-mod-cons")) {
+                    llvm_info.tail_recursive_mod_cons = false;
+
+                } else if (!strcmp(optarg, "llvm-attributes")) {
+                    llvm_info.llvm_attributes = true;
+
+                } else if (!strcmp(optarg, "no-llvm-attributes")) {
+                    llvm_info.llvm_attributes = false;
 
                 } else {
                     error(INVALID_ARGUMENTS,

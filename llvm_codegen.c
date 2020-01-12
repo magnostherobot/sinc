@@ -335,6 +335,21 @@ int make_trmc_inner_name(char *buf, int n, char *outer_id, char *mod) {
     return snprintf(buf, n, ".%s.inner.%s", outer_id, mod);
 }
 
+void add_enum_attr(LLVMValueRef f, uint index, char *id, size_t n, int val) {
+    if (!opts->llvm_attributes) return;
+    if (!n) n = strlen(id);
+
+    unsigned kind = LLVMGetEnumAttributeKindForName(id, n);
+    if (!kind) error(GENERAL_ERROR, "no enum attribute %s", id);
+
+    LLVMAttributeRef attr = LLVMCreateEnumAttribute(global_context, kind, val);
+    LLVMAddAttributeAtIndex(f, index, attr);
+}
+
+void add_func_enum_attr(LLVMValueRef f, char *id, size_t n, int val) {
+    add_enum_attr(f, LLVMAttributeFunctionIndex, id, n, val);
+}
+
 LLVMValueRef codegen_type_definition(sexpr *se) {
     assert(se);
     assert(se->type == BRANCH);
@@ -432,6 +447,17 @@ LLVMValueRef codegen_type_definition(sexpr *se) {
     ctor_e->filler.type = filler_t;
     ctor_e->filler.constructs = struct_t;
 
+    add_func_enum_attr(filler_p, "alwaysinline", 0, 1);
+    add_func_enum_attr(filler_p, "norecurse", 0, 1);
+    add_func_enum_attr(filler_p, "nounwind", 0, 1);
+    add_func_enum_attr(filler_p, "writeonly", 0, 1);
+    add_func_enum_attr(filler_p, "argmemonly", 0, 1);
+    add_enum_attr(filler_p, filler_param_c, "nonnull", 0, 1);
+
+    add_func_enum_attr(ctor_p, "alwaysinline", 0, 1);
+    add_func_enum_attr(ctor_p, "norecurse", 0, 1);
+    add_func_enum_attr(ctor_p, "nounwind", 0, 1);
+
     /*
      * Make functions to retreive each property of the struct.
      */
@@ -457,6 +483,13 @@ LLVMValueRef codegen_type_definition(sexpr *se) {
 
         debug("adding %s to scope\n", prop_func_id);
         scope_add_entry(sc, prop_func_id, prop_func_p, prop_func_t);
+
+        add_func_enum_attr(prop_func_p, "alwaysinline", 0, 1);
+        add_func_enum_attr(prop_func_p, "norecurse", 0, 1);
+        add_func_enum_attr(prop_func_p, "nounwind", 0, 1);
+        add_func_enum_attr(prop_func_p, "readonly", 0, 1);
+        add_func_enum_attr(prop_func_p, "argmemonly", 0, 1);
+        add_enum_attr(prop_func_p, 1, "nonnull", 0, 1);
     }
     LLVMDisposeBuilder(util_b);
 
@@ -892,6 +925,9 @@ void codegen_trmc_inner(char *outer_id, char **outer_param_ids, LLVMValueRef
         LLVMBuildRetVoid(builder);
 
    }
+
+    add_func_enum_attr(inner_p, "nounwind", 0, 1);
+    add_enum_attr(inner_p, inner_arg_c, "nonnull", 0, 1);
 }
 
 void codegen_trmc(scope_entry *outer_e, uint outer_param_c, sexpr *body,
@@ -1153,6 +1189,8 @@ void codegen_trmc(scope_entry *outer_e, uint outer_param_c, sexpr *body,
     if (else_p) codegen_trmc_inner(outer_id, param_names, else_p, then_p,
             inner_t, else_p, inner_t, body, else_ast);
 
+    add_func_enum_attr(outer_p, "nounwind", 0, 1);
+
     /*
      * It would be nice if we could consider these TRMC functions similarly to
      * filler functions, e.g. flatten would be TRMC with concat being its cons.
@@ -1225,10 +1263,18 @@ void codegen_constructor(scope_entry *outer_e, scope_entry *base_e, uint
     outer_e->filler.value = filler_p;
     outer_e->filler.type = filler_t;
     outer_e->filler.constructs = base_e->filler.constructs;
+
+    add_func_enum_attr(filler_p, "nounwind", 0, 1);
+    add_enum_attr(filler_p, filler_param_c, "nonnull", 0, 1);
+
+    add_func_enum_attr(outer_p, "nounwind", 0, 1);
 }
 
-LLVMValueRef codegen_basic_function(sexpr *body, int tail_position) {
-    return LLVMBuildRet(builder, _codegen(body, tail_position));
+void codegen_basic_function(LLVMValueRef f, sexpr *body, int
+        tail_position) {
+
+    add_func_enum_attr(f, "nounwind", 0, 1);
+    LLVMBuildRet(builder, _codegen(body, tail_position));
 }
 
 LLVMValueRef codegen_definition(sexpr *se) {
@@ -1313,11 +1359,11 @@ LLVMValueRef codegen_definition(sexpr *se) {
             codegen_constructor(entry, constructor_base, param_c, body);
 
         } else {
-            codegen_basic_function(body, 1);
+            codegen_basic_function(func_p, body, 1);
         }
 
     } else {
-        codegen_basic_function(body, 1);
+        codegen_basic_function(func_p, body, 1);
     }
 
     scope_pop_layer(&sc);
@@ -1602,12 +1648,10 @@ int interpret(LLVMModuleRef module) {
 }
 
 int llvm_codegen_epilogue(char *output_filename, format_t format) {
-    // char *error_str = 0;
-
-    // LLVMDumpModule(module);
-
-    // LLVMVerifyModule(module, LLVMAbortProcessAction, &error_str);
-    // LLVMDisposeMessage(error_str);
+    /* char *error_str = 0; */
+    /* LLVMDumpModule(module); */
+    /* LLVMVerifyModule(module, LLVMAbortProcessAction, &error_str); */
+    /* LLVMDisposeMessage(error_str); */
 
     LLVMDIBuilderFinalise(di_builder);
 
