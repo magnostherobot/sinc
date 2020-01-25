@@ -1,32 +1,117 @@
-[dec != [x y]]
-[dec and [x y]]
-
-[dec cons [x xs]]
-[dec head [xs]]
-[dec tail [xs]]
-[dec nil []]
-[dec is_nil [xs]]
-[dec flatten [xs]]
-[dec .. [x y]]
-[dec length [xs]]
-[dec map [f xs]]
-[dec foldl [f acc xs]]
-[dec concat [xs ys]]
-
-[dec left.val [x]]
-
-[dec pure [x]]
-[dec empty []]
-[dec return [x]]
-
-[dec !map [c as]]
-[dec !> [c a]]
-[dec closure [f a]]
-
-[dec count_solns [n]]
+[type closure_ [func arity arg_c args]]
+[type list_ [kind head tail]]
+[type nil_ [kind]]
+[type left_  [kind val]]
+[type right_ [kind val]]
 
 [dec + [x y]]
 [dec - [x y]]
+[dec run_func [f arity args]]
+
+[def head [xs]
+    [list_.head xs]]
+
+[def tail [xs]
+    [list_.tail xs]]
+
+[def cons [h t]
+    [list_ 0 h t]]
+
+[def nil []
+    [nil_ 1]]
+
+[def is_nil [xs]
+    [if [nil_.kind xs]
+        1
+        0]]
+
+[def left [val]
+    [left_ 0 val]]
+
+[def right [val]
+    [right_ 1 val]]
+
+[def left.val [x]
+    [left_.val x]]
+
+[def right.val [x]
+    [right_.val x]]
+
+[def is_right [x]
+    [right_.kind x]]
+
+[def is_left [x]
+    [if [is_right x]
+        0
+        1]]
+
+[def not [x]
+    [if x
+        0
+        1]]
+
+[def and [x y]
+    [if x
+        y
+        0]]
+
+[def != [x y]
+    [- x y]]
+
+[def = [x y]
+    [not [!= x y]]]
+
+[def inc [x]
+    [+ x 1]]
+
+[def append [xs x]
+    [if [is_nil xs]
+        [cons x [nil]]
+        [cons [head xs] [append [tail xs] x]]]]
+
+[def add_arg [c a]
+    [closure_ [closure_.func c]
+          [closure_.arity c]
+          [inc [closure_.arg_c c]]
+          [append [closure_.args c] a]]]
+
+[def wake [h]
+    [run_func [closure_.func h] [closure_.arity h] [closure_.args h]]]
+
+[def closure [f v]
+    [closure_ f v 0 [nil]]]
+
+[def _length [xs n]
+    [if [is_nil xs]
+        n
+        [_length [tail xs] [inc n]]]]
+
+[def length [xs]
+    [_length xs 0]]
+
+[def concat [as bs]
+    [if [is_nil as]
+        bs
+        [cons [head as] [concat [tail as] bs]]]]
+
+[def flatten [xs]
+    [if [is_nil xs]
+        [nil]
+        [concat [head xs] [flatten [tail xs]]]]]
+
+[def .. [x y]
+    [if [= x y]
+        [cons x [nil]]
+        [cons x [.. [+ x 1] y]]]]
+
+[def pure [x]
+    [cons x [nil]]]
+
+[def empty []
+    [nil]]
+
+[def return [x]
+    [cons x [nil]]]
 
 [def safe [x d qs]
     [if [is_nil qs]
@@ -41,45 +126,33 @@
         [pure 0]
         [empty]]]
 
-[def !. [g f x]
-    [!> g [f x]]]
-
-[def .! [g f x]
-    [g [left.val [!> f x]]]]
-
-[def !.! [g f x]
-    [!> g [!> f x]]]
-
-[def !foldl [c acc xs]
+[def foldl [c acc xs]
     [if [is_nil xs]
         acc
-        [!foldl c [left.val [!> [!> c acc] [head xs]]] [tail xs]]]]
+        [foldl c [wake [add_arg [add_arg c acc] [head xs]]] [tail xs]]]]
 
-[def !concatMapClosure [c acc x]
-    [concat acc [left.val [!> c x]]]]
+[def concatMapClosure [c acc x]
+    [concat acc [wake [add_arg c x]]]]
 
-[def !concatMap [c xs]
-    [!foldl [!> [closure !concatMapClosure 3] c] [nil] xs]]
+[def concatMap [c xs]
+    [foldl [add_arg [closure concatMapClosure 3] c] [nil] xs]]
 
-[def _!>>= [xs c]
-    [flatten [map left.val [!map c xs]]]]
-
-[def !>>= [xs c]
-    [!concatMap c xs]]
+[def >>= [xs c]
+    [concatMap c xs]]
 
 [def gen_1_1_1 [q b _]
     [return [cons q b]]]
 
 [def gen_1_1 [b q]
-    [!>>= [guard [safe q 1 b]]
-         [!> [!> [closure gen_1_1_1 3] q] b]]]
+    [>>= [guard [safe q 1 b]]
+         [add_arg [add_arg [closure gen_1_1_1 3] q] b]]]
 
 [def gen_1 [nq b]
-    [!>>= [.. 1 nq]
-         [!> [closure gen_1_1 2] b]]]
+    [>>= [.. 1 nq]
+         [add_arg [closure gen_1_1 2] b]]]
 
 [def gen [n nq]
     [if n
-        [!>>= [gen [- n 1] nq]
-              [!> [closure gen_1 2] nq]]
+        [>>= [gen [- n 1] nq]
+              [add_arg [closure gen_1 2] nq]]
         [cons [nil] [nil]]]]

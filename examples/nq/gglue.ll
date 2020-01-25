@@ -4,11 +4,6 @@ declare fastcc i8* @gen(i8*, i8*)
 
 declare fastcc i8* @length (i8*)
 
-define fastcc i32 @inc(i32) {
-  %res = add i32 1, %0
-  ret i32 %res
-}
-
 define fastcc i32 @"+"(i32, i32) {
   %res = add i32 %0, %1
   ret i32 %res

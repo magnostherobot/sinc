@@ -159,7 +159,6 @@ int main(int argc, char **argv) {
                 printf(
 "usage: %s [options] <input_file>\n"
 "-b           Specify bitcode-format output\n"
-"-c           Compile mode\n"
 "-g           Output a Graphviz .dot file\n"
 "-h           Print this help message\n"
 "-i           Interpret mode\n"

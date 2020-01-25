@@ -23,7 +23,7 @@ default: all
 
 all: $(TRGT)
 
-$(TRGT): nqueens.o util.o either.o list.o closures.o run_func.o glue.o gglue.o
+$(TRGT): nqueens.o run_func.o glue.o gglue.o
 
 clean:
 	$(RM) $(LLEXT) *.dot *.svg *.o $(TRGT)

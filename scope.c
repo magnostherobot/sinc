@@ -53,6 +53,12 @@ scope_entry *scope_add_entry(scope sc, char *id, LLVMValueRef val,
     new_entry->value = val;
     new_entry->type = type;
 
+    new_entry->has_filler = 0;
+    new_entry->filler.id = 0;
+    new_entry->filler.value = 0;
+    new_entry->filler.type = 0;
+    new_entry->filler.constructs = 0;
+
     scope_layer *layer = sc;
     new_entry->prev = layer->head;
     layer->head = new_entry;
