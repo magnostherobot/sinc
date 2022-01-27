@@ -1456,6 +1456,50 @@ LLVMValueRef codegen_conditional(sexpr *se, int tail_position) {
     return phi_p;
 }
 
+LLVMValueRef codegen_case(sexpr *se, int tail_position) {
+    (void) se;
+    (void) tail_position;
+
+    // TODO
+    
+    return NULL;
+}
+
+LLVMValueRef codegen_let(sexpr *se, int tail_position) {
+    assert(se);
+    assert(se->type == BRANCH);
+
+    sexpr *binding_pair = se->contents.n.l;
+    assert(binding_pair);
+    assert(binding_pair->type == BRANCH);
+
+    sexpr *new_name_node = binding_pair->contents.n.l;
+    assert(new_name_node);
+    assert(new_name_node->type == ID);
+
+    sexpr *old_expr_node = binding_pair->contents.n.r;
+    assert(old_expr_node);
+
+    sexpr *in_expr_parent = se->contents.n.r;
+    assert(in_expr_parent);
+    assert(in_expr_parent->type == BRANCH);
+
+    sexpr *in_expr = in_expr_parent->contents.n.l;
+    assert(in_expr);
+
+    LLVMValueRef old_expr = _codegen(old_expr_node, tail_position);
+
+    scope_push_layer(&sc);
+    // FIXME should not rely on boxed_t
+    scope_add_entry(sc, new_name_node->contents.s, old_expr, boxed_t);
+
+    LLVMValueRef res = _codegen(in_expr, tail_position);
+
+    scope_pop_layer(&sc);
+
+    return res;
+}
+
 LLVMValueRef codegen_branch(sexpr *se, int tail_position) {
 
     assert(se);
@@ -1474,6 +1518,10 @@ LLVMValueRef codegen_branch(sexpr *se, int tail_position) {
             res = codegen_type_definition(r);
         } else if (!strcmp(l->contents.s, "if")) {
             res = codegen_conditional(r, tail_position);
+        } else if (!strcmp(l->contents.s, "case")) {
+            res = codegen_case(r, tail_position);
+        } else if (!strcmp(l->contents.s, "let")) {
+            res = codegen_let(r, tail_position);
         } else {
             res = codegen_invocation(se, tail_position);
         }
@@ -1482,7 +1530,7 @@ LLVMValueRef codegen_branch(sexpr *se, int tail_position) {
         res = codegen_int(function, builder, se);
 
     } else {
-        error(SYNTAX_ERROR, "don't know what to do with above AST");
+        error(SYNTAX_ERROR, "don't know what to do with AST");
     }
 
     return res;
