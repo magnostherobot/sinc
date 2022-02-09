@@ -1457,12 +1457,88 @@ LLVMValueRef codegen_conditional(sexpr *se, int tail_position) {
 }
 
 LLVMValueRef codegen_case(sexpr *se, int tail_position) {
-    (void) se;
-    (void) tail_position;
+    assert(se);
+    assert(se->type == BRANCH);
 
-    // TODO
-    
-    return NULL;
+    sexpr *match_against = se->contents.n.l;
+    assert(match_against);
+
+    sexpr *cases_parent = se->contents.n.r;
+    assert(cases_parent);
+    assert(cases_parent->type == BRANCH);
+
+    sexpr *cases_start = cases_parent->contents.n.l;
+    assert(cases_start);
+    assert(cases_start->type == BRANCH);
+
+    sexpr *default_case_parent = cases_parent->contents.n.r;
+    assert(default_case_parent);
+    assert(default_case_parent->type == BRANCH);
+    assert(default_case_parent->contents.n.r == NULL);
+
+    sexpr *default_case_node = default_case_parent->contents.n.l;
+    assert(default_case_node);
+
+    LLVMValueRef matchee = _codegen(match_against, tail_position);
+
+    LLVMBasicBlockRef before_b = builder_block;
+    LLVMBasicBlockRef exit_b = LLVMAppendBasicBlock(function, "case_exit");
+
+    // FIXME magic number
+    LLVMValueRef matches[100];
+    LLVMBasicBlockRef case_blocks[100];
+    LLVMValueRef results[100];
+
+    unsigned case_count = 0;
+    for (sexpr *case_parent = cases_start; case_parent;
+            case_parent = case_parent->contents.n.r) {
+
+        sexpr *case_node = case_parent->contents.n.l;
+        assert(case_node);
+        assert(case_node->type == BRANCH);
+
+        sexpr *match_node = case_node->contents.n.l;
+        assert(match_node);
+
+        sexpr *then_node = case_node->contents.n.r;
+        assert(then_node);
+
+        put_builder_at_end(builder, before_b);
+        LLVMValueRef match = _codegen(match_node, tail_position);
+
+        LLVMBasicBlockRef case_b = LLVMAppendBasicBlock(function, "case");
+        put_builder_at_end(builder, case_b);
+        LLVMValueRef then_result = _codegen(then_node, tail_position);
+        LLVMBuildBr(builder, exit_b);
+
+        matches[case_count] = match;
+        case_blocks[case_count] = case_b;
+        results[case_count] = then_result;
+
+        case_count++;
+    }
+
+    LLVMBasicBlockRef default_b =
+        LLVMAppendBasicBlock(function, "case_default");
+    put_builder_at_end(builder, default_b);
+    LLVMValueRef def_result = _codegen(default_case_node, tail_position);
+    LLVMBuildBr(builder, exit_b);
+
+    put_builder_at_end(builder, before_b);
+    LLVMValueRef switch_v =
+        LLVMBuildSwitch(builder, matchee, default_b, case_count);
+    for (unsigned i = 0; i < case_count; i++) {
+        LLVMAddCase(switch_v, matches[i], case_blocks[i]);
+    }
+
+    put_builder_at_end(builder, exit_b);
+    // FIXME shouldn't be using boxed_t here
+    LLVMValueRef res = LLVMBuildPhi(builder, boxed_t, "case_result");
+    case_blocks[case_count] = default_b;
+    results[case_count] = def_result;
+    LLVMAddIncoming(res, results, case_blocks, case_count + 1);
+
+    return res;
 }
 
 LLVMValueRef codegen_let(sexpr *se, int tail_position) {
@@ -1546,7 +1622,6 @@ LLVMValueRef _codegen(sexpr *sexpr, int tail_position) {
             return codegen_branch(sexpr, tail_position);
         case NIL:
         default:
-            printf("erm\n");
             return 0;
     }
 }

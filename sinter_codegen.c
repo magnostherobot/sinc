@@ -12,8 +12,8 @@ typedef struct func_str_s {
     struct func_str_s *next;
 } func_str;
 
-func_str *ffs;
-func_str *lfs;
+func_str *sin_ffs;
+func_str *sin_lfs;
 
 static int fill_buf(char *buf, sexpr *ast) {
     char *old_buf = buf;
@@ -49,8 +49,8 @@ static int fill_buf(char *buf, sexpr *ast) {
 }
 
 void sinter_codegen_prologue() {
-    ffs = 0;
-    lfs = 0;
+    sin_ffs = 0;
+    sin_lfs = 0;
 }
 
 void sinter_codegen(sexpr *ast) {
@@ -60,15 +60,15 @@ void sinter_codegen(sexpr *ast) {
     fill_buf(fs->buf, ast);
     fs->next = 0;
 
-    if (!ffs) ffs = fs;
-    if (lfs) lfs->next = fs;
-    lfs = fs;
+    if (!sin_ffs) sin_ffs = fs;
+    if (sin_lfs) sin_lfs->next = fs;
+    sin_lfs = fs;
 }
 
 int sinter_codegen_epilogue(char *output_filename) {
     FILE *fp = fopen(output_filename, "w");
 
-    for (func_str *fs = ffs; fs; fs = fs->next) {
+    for (func_str *fs = sin_ffs; fs; fs = fs->next) {
         fprintf(fp, "%s\n", fs->buf);
     }
 
