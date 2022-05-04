@@ -220,6 +220,12 @@ LLVMValueRef codegen_int(LLVMValueRef f, LLVMBuilderRef b, sexpr *se) {
     return box_val(f, b, val, int_t);
 }
 
+LLVMValueRef codegen_string(sexpr *se) {
+    assert(se->type == STRING);
+
+    return LLVMBuildGlobalStringPtr(builder, se->contents.s, "string");
+}
+
 LLVMValueRef codegen_id(char *id) {
     scope_entry *entry = scope_find(sc, id);
     if (!entry) return 0;
@@ -1456,6 +1462,23 @@ LLVMValueRef codegen_conditional(sexpr *se, int tail_position) {
     return phi_p;
 }
 
+LLVMValueRef constant_int(sexpr *se) {
+    assert(se);
+    assert(se->type == BRANCH);
+
+    sexpr *int_w = se->contents.n.l;
+    assert(int_w);
+    assert(int_w->type == INT);
+
+    sexpr *int_v = se->contents.n.r;
+    assert(int_v);
+    assert(int_v->type == INT);
+
+    // LLVMTypeRef int_t = LLVMIntType(int_w->contents.i);
+    LLVMTypeRef int_t = LLVMIntType(32);
+    return LLVMConstInt(int_t, int_v->contents.i, 0);
+}
+
 LLVMValueRef codegen_case(sexpr *se, int tail_position) {
     assert(se);
     assert(se->type == BRANCH);
@@ -1504,7 +1527,7 @@ LLVMValueRef codegen_case(sexpr *se, int tail_position) {
         assert(then_node);
 
         put_builder_at_end(builder, before_b);
-        LLVMValueRef match = _codegen(match_node, tail_position);
+        LLVMValueRef match = constant_int(match_node);
 
         LLVMBasicBlockRef case_b = LLVMAppendBasicBlock(function, "case");
         put_builder_at_end(builder, case_b);
@@ -1524,9 +1547,19 @@ LLVMValueRef codegen_case(sexpr *se, int tail_position) {
     LLVMValueRef def_result = _codegen(default_case_node, tail_position);
     LLVMBuildBr(builder, exit_b);
 
+    /* FIXME
+     *
+     * Using 32 as a magic number here means that values wider than 32 bits are
+     * going to be checked incorrectly. This number should instead be
+     * user-provided (perhaps in a similar way to if statements)
+     */
+    LLVMTypeRef case_width = LLVMIntType(32);
+
     put_builder_at_end(builder, before_b);
+    LLVMValueRef matchee_unboxed =
+        unbox_val(function, builder, matchee, case_width);
     LLVMValueRef switch_v =
-        LLVMBuildSwitch(builder, matchee, default_b, case_count);
+        LLVMBuildSwitch(builder, matchee_unboxed, default_b, case_count);
     for (unsigned i = 0; i < case_count; i++) {
         LLVMAddCase(switch_v, matches[i], case_blocks[i]);
     }
@@ -1618,6 +1651,8 @@ LLVMValueRef _codegen(sexpr *sexpr, int tail_position) {
             return codegen_default_int(function, builder, sexpr->contents.i);
         case ID:
             return codegen_id(sexpr->contents.s);
+	case STRING:
+	    return codegen_string(sexpr);
         case BRANCH:
             return codegen_branch(sexpr, tail_position);
         case NIL:
