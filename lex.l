@@ -34,7 +34,7 @@ char *str_value(char *s) {
     s++;
     /* FIXME: strdup allocates memory! */
     char *ret = strdup(s);
-    ret[strlen(s) - 2] = 0;
+    ret[strlen(s) - 1] = 0;
 
     return ret;
 }
