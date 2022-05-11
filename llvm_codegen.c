@@ -1510,6 +1510,7 @@ LLVMValueRef codegen_case(sexpr *se, int tail_position) {
     // FIXME magic number
     LLVMValueRef matches[100];
     LLVMBasicBlockRef case_blocks[100];
+    LLVMBasicBlockRef case_exit_blocks[100];
     LLVMValueRef results[100];
 
     unsigned case_count = 0;
@@ -1529,13 +1530,21 @@ LLVMValueRef codegen_case(sexpr *se, int tail_position) {
         put_builder_at_end(builder, before_b);
         LLVMValueRef match = constant_int(match_node);
 
-        LLVMBasicBlockRef case_b = LLVMAppendBasicBlock(function, "case");
+        LLVMBasicBlockRef case_b =
+            LLVMAppendBasicBlock(function, "case_branch");
+        LLVMBasicBlockRef case_exit_b =
+            LLVMAppendBasicBlock(function, "case_branch_exit");
+
         put_builder_at_end(builder, case_b);
         LLVMValueRef then_result = _codegen(then_node, tail_position);
+        LLVMBuildBr(builder, case_exit_b);
+
+        put_builder_at_end(builder, case_exit_b);
         LLVMBuildBr(builder, exit_b);
 
         matches[case_count] = match;
         case_blocks[case_count] = case_b;
+        case_exit_blocks[case_count] = case_exit_b;
         results[case_count] = then_result;
 
         case_count++;
@@ -1543,8 +1552,14 @@ LLVMValueRef codegen_case(sexpr *se, int tail_position) {
 
     LLVMBasicBlockRef default_b =
         LLVMAppendBasicBlock(function, "case_default");
+    LLVMBasicBlockRef default_exit_b =
+        LLVMAppendBasicBlock(function, "case_default_exit");
+
     put_builder_at_end(builder, default_b);
     LLVMValueRef def_result = _codegen(default_case_node, tail_position);
+    LLVMBuildBr(builder, default_exit_b);
+
+    put_builder_at_end(builder, default_exit_b);
     LLVMBuildBr(builder, exit_b);
 
     /* FIXME
@@ -1568,8 +1583,9 @@ LLVMValueRef codegen_case(sexpr *se, int tail_position) {
     // FIXME shouldn't be using boxed_t here
     LLVMValueRef res = LLVMBuildPhi(builder, boxed_t, "case_result");
     case_blocks[case_count] = default_b;
+    case_exit_blocks[case_count] = default_exit_b;
     results[case_count] = def_result;
-    LLVMAddIncoming(res, results, case_blocks, case_count + 1);
+    LLVMAddIncoming(res, results, case_exit_blocks, case_count + 1);
 
     return res;
 }
