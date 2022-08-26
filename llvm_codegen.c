@@ -342,6 +342,9 @@ int make_trmc_inner_name(char *buf, int n, char *outer_id, char *mod) {
 }
 
 void add_enum_attr(LLVMValueRef f, uint index, char *id, size_t n, int val) {
+    // FIXME adding enums causes the generator to output unfinished LLVM IR.
+    return;
+
     if (!opts->llvm_attributes) return;
     if (!n) n = strlen(id);
 
@@ -412,7 +415,8 @@ LLVMValueRef codegen_type_definition(sexpr *se) {
     LLVMValueRef space = LLVMBuildPointerCast(util_b, space_cast,
             struct_ptr_t, "space_uncast");
     for (uint i = 0; i < prop_c; i++) {
-        LLVMValueRef prop_pos = LLVMBuildStructGEP(util_b, space, i, "pos");
+        LLVMValueRef prop_pos =
+            LLVMBuildStructGEP2(util_b, struct_t, space, i, "pos");
         LLVMValueRef param = LLVMGetParam(filler_p, i);
         LLVMBuildStore(util_b, param, prop_pos);
     }
@@ -484,7 +488,7 @@ LLVMValueRef codegen_type_definition(sexpr *se) {
             LLVMBuildPointerCast(util_b, param, struct_ptr_t, "uncast");
         LLVMValueRef ptr =
             LLVMBuildStructGEP2(util_b, struct_t, uncast, i, "part");
-        LLVMValueRef val = LLVMBuildLoad(util_b, ptr, "deref");
+        LLVMValueRef val = LLVMBuildLoad2(util_b, boxed_t, ptr, "deref");
         LLVMBuildRet(util_b, val);
 
         debug("adding %s to scope\n", prop_func_id);
@@ -1721,10 +1725,23 @@ LLVMMetadataRef debug_make_compile_unit(LLVMDIBuilderRef di_builder,
     int inline_debug_info = 1;
     int profile_debug_info = 1;
 
-    return LLVMDIBuilderCreateCompileUnit(di_builder, lang, di_file, producer,
-            producer_len, optimised, flags, flags_len, runtime_version,
-            split_name, split_name_len, emission, dwoid, inline_debug_info,
-            profile_debug_info);
+    return LLVMDIBuilderCreateCompileUnit(
+            di_builder,
+            lang,
+            di_file,
+            producer, producer_len,
+            optimised,
+            flags, flags_len,
+            runtime_version,
+            split_name, split_name_len,
+            emission,
+            dwoid,
+            inline_debug_info,
+            profile_debug_info,
+            // TODO
+            "", 0,
+            "", 0
+            );
 }
 
 void llvm_codegen_prologue(char *filename, optimisation_t *llvm_info) {

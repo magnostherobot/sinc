@@ -1,4 +1,4 @@
-This project is built using LLVM 10.
+This project is built using LLVM 14.
 
 The Makefile tries to call llvm-config, but this is ambiguous and may not work
 in some situations (since there are more versions of LLVM than just v10). The
