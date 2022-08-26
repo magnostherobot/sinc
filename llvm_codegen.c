@@ -1667,8 +1667,8 @@ LLVMValueRef _codegen(sexpr *sexpr, int tail_position) {
             return codegen_default_int(function, builder, sexpr->contents.i);
         case ID:
             return codegen_id(sexpr->contents.s);
-	case STRING:
-	    return codegen_string(sexpr);
+        case STRING:
+            return codegen_string(sexpr);
         case BRANCH:
             return codegen_branch(sexpr, tail_position);
         case NIL:
