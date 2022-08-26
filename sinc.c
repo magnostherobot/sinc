@@ -14,8 +14,6 @@
 #include "debug.h"
 #include "error.h"
 
-typedef unsigned int uint;
-
 static char *input_filename;
 static char *output_filename;
 static format_t format;

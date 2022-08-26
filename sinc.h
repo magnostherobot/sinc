@@ -6,6 +6,8 @@
 #include "sexpr.h"
 #include "parse.h"
 
+typedef unsigned int uint;
+
 typedef enum {
     BITCODE,
     LLVM_INTERMEDIATE,
