@@ -46,7 +46,7 @@ sinc: sinc.o parse.o lex.o scope.o llvm_codegen.o sinter_codegen.o \
 	$(LINK.cc) $(OUTPUT_OPTION) $^ $(LDLIBS)
 
 test: all
-	$(MAKE) -C examples test
+        "PATH=${PATH}:${PWD}" $(MAKE) -C examples/nq all
 
 parse.o: parse.c
 	$(CC) -c --std=c99 $(OUTPUT_OPTION) $<

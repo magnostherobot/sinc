@@ -1718,13 +1718,13 @@ LLVMMetadataRef debug_make_compile_unit(LLVMDIBuilderRef di_builder,
     size_t split_name_len = strlen(split_name);
     LLVMDWARFEmissionKind emission = LLVMDWARFEmissionFull;
     uint dwoid = 0;
-    int inline_debug_info = 1;
-    int profile_debug_info = 1;
+    bool inline_debug_info = 1;
+    bool profile_debug_info = 1;
 
     return LLVMDIBuilderCreateCompileUnit(di_builder, lang, di_file, producer,
             producer_len, optimised, flags, flags_len, runtime_version,
             split_name, split_name_len, emission, dwoid, inline_debug_info,
-            profile_debug_info);
+            profile_debug_info, NULL, 0, NULL, 0);
 }
 
 void llvm_codegen_prologue(char *filename, optimisation_t *llvm_info) {
