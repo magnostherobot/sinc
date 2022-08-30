@@ -1,7 +1,8 @@
-CC = clang
-CXX = clang++
+CC ?= clang
+CXX ?= clang++
 YACC = bison
 LEX = flex
+LLVM_CONFIG ?= llvm-config
 
 INSTALL = install -c
 
@@ -14,10 +15,10 @@ LFLAGS = -D_POSIX_C_SOURCE=200809L
 
 LLVM_MODULES = core executionengine mcjit interpreter analysis native bitwriter
 
-CFLAGS   += $(shell llvm-config-14 --cflags)
-CXXFLAGS += $(shell llvm-config-14 --cppflags)
-LDFLAGS  += $(shell llvm-config-14 --ldflags)
-LDLIBS   += $(shell llvm-config-14 --libs $(LLVM_MODULES) --system-libs)
+CFLAGS   += $(shell $(LLVM_CONFIG) --cflags)
+CXXFLAGS += $(shell $(LLVM_CONFIG) --cppflags)
+LDFLAGS  += $(shell $(LLVM_CONFIG) --ldflags)
+LDLIBS   += $(shell $(LLVM_CONFIG) --libs $(LLVM_MODULES) --system-libs)
 
 .PHONY: default all clean test install uninstall
 
