@@ -637,6 +637,7 @@ tail_recursive_t is_tail_recursive(char *id, sexpr *ast) {
 
         case INT:
         case ID:
+        case STRING:
             /*
              * just an ID here means that the function is returning a constant
              * function pointer
