@@ -1,3 +1,4 @@
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
@@ -32,7 +33,7 @@ typedef struct list {
     if (arity == n) cast_apply_f(n)
 
 void *run_func(void *f, void *v, void *as) {
-    int arity = (int) v;
+    int arity = (uintptr_t) v;
     list *l = (list *) as;
 
     void repeat_n_32(*arg_);
