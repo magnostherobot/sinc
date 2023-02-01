@@ -1,9 +1,8 @@
 CC = clang
-SINC = ../../sinter
+SINC = ../../sinc -w 32
 
 TRGT = $(patsubst %.sin,%,$(wildcard test*.sin))
-LDFLAGS = -L$(HOME)/usr/lib
-LDLIBS = -lgc
+LDLIBS += -lgc
 
 include ../../common.mak
 
@@ -13,7 +12,7 @@ default: all
 
 all: $(TRGT)
 
-$(TRGT): test_framework.o ../../common.o
+$(TRGT): test_framework.o
 
 clean:
 	$(RM) *.o *.ll $(TRGT)
