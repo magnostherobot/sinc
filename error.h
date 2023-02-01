@@ -20,4 +20,12 @@ enum errcode {
     exit(v); \
 } while (0)
 
+#define _warn(fmt, ...) do { \
+    fprintf(stderr, fmt "\n", __VA_ARGS__); \
+} while (0)
+
+#define warn(...) do { \
+    _warn(__VA_ARGS__); \
+} while (0)
+
 #endif /* ERROR_H */
