@@ -1,0 +1,4 @@
+[dec assert_string_equals [a b c]]
+
+[def test []
+    [assert_string_equals "hello" "hello" 0]]
